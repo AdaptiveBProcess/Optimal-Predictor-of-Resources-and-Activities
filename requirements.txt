@@ -1,0 +1,9 @@
+gymnasium
+numpy
+simpy
+pandas
+prophet
+pm4py
+plotly
+scikit-learn
+log-distance-measures
