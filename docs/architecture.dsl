@@ -128,7 +128,6 @@ workspace {
             /////////////////////////////////////////////////////////////
             // RELATIONSHIPS – EVALUATION
             /////////////////////////////////////////////////////////////
-            opra_system.environment.update_env -> opra_system.evaluator.calc_perf
             opra_system.evaluator.calc_perf -> opra_system.evaluator.cycle_time
             opra_system.evaluator.cycle_time -> opra_system.evaluator.cf_similarity
             opra_system.evaluator.cf_similarity -> opra_system.evaluator.loss_evolution
