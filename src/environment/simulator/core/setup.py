@@ -7,8 +7,8 @@ class SimulationSetup:
     time_unit: str
     start_timestamp: str
     routing_policy: RoutingPolicy.RoutingPolicy
-    waiting_time_policy: WaitingTImePolicy.WaitingTimePolicy
     processing_time_policy: ProcessingTimePolicy.ProcessingTimePolicy
-    calendar_policy: CalendarPolicy.CalendarPolicy
+    waiting_time_policy: WaitingTImePolicy.WaitingTimePolicy
     arrival_policy: ArrivalPolicy.ArrivalPolicy
+    calendar_policy: CalendarPolicy.CalendarPolicy
     resource_policy: ResourceAllocationPolicy.ResourceAllocationPolicy

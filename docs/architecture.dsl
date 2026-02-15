@@ -6,32 +6,15 @@ workspace {
         process_analyst = person "Process Analyst" "Designs, runs, and evaluates business process simulations."
 
         opra_system = softwareSystem "OPRA - Process Simulation & RL Optimization" {
-            description "Business process simulation and optimization using reinforcement learning with Top-K / Top-P constrained action spaces."
+            description "Business process simulation and optimization System. With the use reinforcement learning agents to predict activity and resource pair with Top-K / Top-P constrained action spaces."
 
-            /////////////////////////////////////////////////////////////
-            // INITIALIZER
-            /////////////////////////////////////////////////////////////
-            initializer = container "Initializer" {
-                description "Bootstraps the simulation, process model, and predictive models."
-                technology "Python"
-                tags "Initializer"
-
-                load_log = component "Load Event Log" "Loads activities and resources from historical logs."
-                create_petri = component "Create Petri Net" "Builds the Petri net representation of the process."
-                lift_models = component "Lift Predictive Models" "Configures branching, time, and arrival models."
-                trained_decision = component "Models Trained?" "Checks whether trained models exist."
-                train_models = component "Train Models" "Trains predictive models from event logs."
-                load_models = component "Load Models" "Loads pretrained predictive models."
-                calc_defaults = component "Calculate Defaults" "Computes fallback probabilities and durations."
-                create_env = component "Create Environment" "Instantiates the simulation environment."
-            }
 
             /////////////////////////////////////////////////////////////
             // ENVIRONMENT
             /////////////////////////////////////////////////////////////
             environment = container "Simulation Environment" {
-                description "Discrete-event simulation of the business process."
-                technology "Python"
+                description "Environment connects the agent with the simulator, manages the decision boundary, and handles reward calculation."
+                technology "Gymnasium, Python"
                 tags "Environment"
 
                 create_sim = component "Create Simulator" "Initializes the discrete-event simulator."
@@ -54,10 +37,13 @@ workspace {
                 technology "Python, SimPy"
                 tags "Simulator"
 
-                //
-
-
-
+                // Components
+                routing_policy = component "Routing Policy" "Determines case routing based on process model."
+                processing_time_policy = component "Processing Time Policy" "Predicts activity durations from time models."
+                waiting_time_policy = component "Waiting Time Policy" "Calculates waiting times based on resource availability." 
+                arrival_policy = component "Arrival Policy" "Generates case arrivals based on arrival models."
+                calendar_policy = component "Calendar Policy" "Applies calendar constraints to scheduling."
+                resource_policy = component "Resource Allocation Policy" "Allocates resources to activities based on availability and policies."
             }
 
             /////////////////////////////////////////////////////////////
@@ -87,6 +73,26 @@ workspace {
                 cf_similarity = component "Control-Flow Similarity" "Compares simulated vs real traces."
                 loss_evolution = component "Agent Loss Evolution" "Tracks learning stability."
             }
+
+
+            /////////////////////////////////////////////////////////////
+            // INITIALIZER
+            /////////////////////////////////////////////////////////////
+            initializer = container "Initializer" {
+                description "Bootstraps the simulation, process model, and predictive models."
+                technology "Python"
+                tags "Initializer"
+
+                load_log = component "Load Event Log" "Loads activities and resources from historical logs."
+                create_petri = component "Create Petri Net" "Builds the Petri net representation of the process."
+                lift_models = component "Lift Predictive Models" "Configures branching, time, and arrival models."
+                trained_decision = component "Models Trained?" "Checks whether trained models exist."
+                train_models = component "Train Models" "Trains predictive models from event logs."
+                load_models = component "Load Models" "Loads pretrained predictive models."
+                calc_defaults = component "Calculate Defaults" "Computes fallback probabilities and durations."
+                create_env = component "Create Environment" "Instantiates the simulation environment."
+            }
+
 
             /////////////////////////////////////////////////////////////
             // RELATIONSHIPS – INITIALIZER FLOW
