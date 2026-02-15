@@ -17,19 +17,12 @@ workspace {
                 technology "Gymnasium, Python"
                 tags "Environment"
 
-                create_sim = component "Create Simulator" "Initializes the discrete-event simulator."
-                init_arrivals = component "Initialize Arrivals" "Generates initial arrival events."
-                event_selector = component "Event Selection (FIFO)" "Selects the next enabled event."
-                event_prediction = component "Event Prediction Call" "Requests predictions from models."
 
-                // --- Decision Boundary (YELLOW) ---
-                calc_available = component "Calculate Available Resources & Top-K / Top-P Activities" "Computes enabled actions and restricts them using Top-K / Top-P." tags "Decision Boundary"
-                mask_actions = component "Mask Possible Actions" "Applies feasibility and probability masks."
-                execute_action = component "Execute Action" "Executes the selected activity-resource pair."
-                calc_reward = component "Calculate Reward" "Computes reward from execution outcome."
-                update_env = component "Update Environment" "Advances simulation state."
-                terminal_check = component "Terminal?" "Checks episode termination."
-                save_log = component "Save Simulation Log" "Persists the simulation event log."
+                state_representation = component "State Representation" "Encodes the current state of the simulation for the agent."
+                mask = component "Mask Actions" "Applies Top-K / Top-P masking to the action space based on the current state and decision boundary."
+                action_selector = component "Action Selector" "Selects an action (Activity, Resource) from the masked action space based on agent predictions."
+                reward = component "Calculate Reward" "Computes the reward signal based on simulation outcomes and performance metrics."
+                update_env = component "Update Environment" "Updates the environment state based on executed actions and simulation feedback."
             }
 
             simulator = container "Discrete-Event Simulator" {
@@ -54,8 +47,8 @@ workspace {
                 technology "Python, PyTorch"
                 tags "RL Agent"
 
-                start_agent = component "Start Agent" "Initializes the RL agent."
-                predict_pair = component "Predict (Activity, Resource)" "Predicts an action from masked space."
+                activities_policy = component "Activity Policy Network" "Predicts activity selection probabilities."
+                resource_policy = component "Resource Policy Network" "Predicts resource allocation probabilities."
                 learn = component "Learn" "Updates policy/value networks."
                 save_loss = component "Save Loss" "Persists training loss."
             }
@@ -83,60 +76,59 @@ workspace {
                 technology "Python"
                 tags "Initializer"
 
-                load_log = component "Load Event Log" "Loads activities and resources from historical logs."
-                create_petri = component "Create Petri Net" "Builds the Petri net representation of the process."
-                lift_models = component "Lift Predictive Models" "Configures branching, time, and arrival models."
-                trained_decision = component "Models Trained?" "Checks whether trained models exist."
-                train_models = component "Train Models" "Trains predictive models from event logs."
-                load_models = component "Load Models" "Loads pretrained predictive models."
-                calc_defaults = component "Calculate Defaults" "Computes fallback probabilities and durations."
-                create_env = component "Create Environment" "Instantiates the simulation environment."
+                discover_routing_policy = component "Discover Routing Policy" "Discovers routing policy from event log."
+                discover_processing_time_policy = component "Discover Processing Time Policy" "Discovers processing time policy from event log."
+                discover_waiting_time_policy = component "Discover Waiting Time Policy" "Discovers waiting time policy from event log."
+                discover_arrival_policy = component "Discover Arrival Policy" "Discovers arrival policy from event log."
+                discover_calendar_policy = component "Discover Calendar Policy" "Discovers calendar policy from event log"
+                discover_resource_policy = component "Discover Resource Allocation Policy" "Discovers resource allocation policy from event log."
+                simulation_setup = component "Provides Simulation the Simulation Model" "Loads activities and resources from historical logs."
             }
 
 
             /////////////////////////////////////////////////////////////
             // RELATIONSHIPS – INITIALIZER FLOW
             /////////////////////////////////////////////////////////////
-            opra_system.initializer.load_log -> opra_system.initializer.create_petri
-            opra_system.initializer.create_petri -> opra_system.initializer.lift_models
-            opra_system.initializer.lift_models -> opra_system.initializer.trained_decision
+            opra_system.initializer.discover_routing_policy -> opra_system.initializer.simulation_setup
+            opra_system.initializer.discover_processing_time_policy -> opra_system.initializer.simulation_setup
+            opra_system.initializer.discover_waiting_time_policy -> opra_system.initializer.simulation_setup
+            opra_system.initializer.discover_arrival_policy -> opra_system.initializer.simulation_setup
+            opra_system.initializer.discover_calendar_policy -> opra_system.initializer.simulation_setup
+            opra_system.initializer.discover_resource_policy -> opra_system.initializer.simulation_setup
 
-            opra_system.initializer.trained_decision -> opra_system.initializer.train_models "No"
-            opra_system.initializer.trained_decision -> opra_system.initializer.load_models "Yes"
+            opra_system.initializer.simulation_setup -> opra_system.simulator.routing_policy
+            opra_system.initializer.simulation_setup -> opra_system.simulator.processing_time_policy
+            opra_system.initializer.simulation_setup -> opra_system.simulator.waiting_time_policy
+            opra_system.initializer.simulation_setup -> opra_system.simulator.arrival_policy
+            opra_system.initializer.simulation_setup -> opra_system.simulator.calendar_policy
+            opra_system.initializer.simulation_setup -> opra_system.simulator.resource_policy
 
-            opra_system.initializer.train_models -> opra_system.initializer.calc_defaults
-            opra_system.initializer.load_models -> opra_system.initializer.create_env
-            opra_system.initializer.calc_defaults -> opra_system.initializer.create_env
-
-            /////////////////////////////////////////////////////////////
-            // RELATIONSHIPS – ENVIRONMENT LOOP
-            /////////////////////////////////////////////////////////////
-            opra_system.initializer.create_env -> opra_system.environment.create_sim
-            opra_system.environment.create_sim -> opra_system.environment.init_arrivals
-            opra_system.environment.init_arrivals -> opra_system.environment.event_selector
-            opra_system.environment.event_selector -> opra_system.environment.event_prediction
-            opra_system.environment.event_prediction -> opra_system.environment.calc_available
-            opra_system.environment.calc_available -> opra_system.environment.mask_actions
-            opra_system.environment.mask_actions -> opra_system.environment.execute_action
-            opra_system.environment.execute_action -> opra_system.environment.calc_reward
-            opra_system.environment.calc_reward -> opra_system.environment.update_env
-            opra_system.environment.update_env -> opra_system.environment.terminal_check
-
-            opra_system.environment.terminal_check -> opra_system.environment.save_log "Yes"
-            opra_system.environment.terminal_check -> opra_system.environment.event_selector "No"
 
             /////////////////////////////////////////////////////////////
             // RELATIONSHIPS – AGENT INTERACTION
             /////////////////////////////////////////////////////////////
-            opra_system.agent.start_agent -> opra_system.agent.predict_pair
-            opra_system.agent.predict_pair -> opra_system.environment.calc_available
-            opra_system.environment.execute_action -> opra_system.agent.learn
+            opra_system.environment.state_representation -> opra_system.agent.activities_policy
+            opra_system.environment.state_representation -> opra_system.agent.resource_policy
+            opra_system.agent.activities_policy -> opra_system.environment.mask "Environment masks acitivity from the agent"
+            opra_system.agent.resource_policy -> opra_system.environment.mask "Environment masks resource from the agent"
+            
+            opra_system.environment.mask -> opra_system.environment.action_selector "Environment applies Top-K / Top-P masking to the agent's action space"
+
+            opra_system.environment.action_selector -> opra_system.simulator.processing_time_policy "Selected action (Activity, Resource) is executed in the simulator"
+            opra_system.environment.action_selector -> opra_system.simulator.waiting_time_policy "Selected action (Activity, Resource) is executed in the simulator"
+            opra_system.environment.action_selector -> opra_system.simulator.calendar_policy "Selected action (Activity, Resource) is executed in the simulator"
+
+            opra_system.environment.action_selector -> opra_system.environment.reward "Agent receives reward signal based on action execution and simulation feedback"
+            opra_system.environment.action_selector -> opra_system.environment.update_env "Environment updates state based on action execution and simulation feedback"
+
+            opra_system.environment.reward -> opra_system.agent.learn
             opra_system.agent.learn -> opra_system.agent.save_loss
-            opra_system.agent.save_loss -> opra_system.environment.update_env
+
+
             /////////////////////////////////////////////////////////////
             // RELATIONSHIPS – EVALUATION
             /////////////////////////////////////////////////////////////
-            opra_system.environment.save_log -> opra_system.evaluator.calc_perf
+            opra_system.environment.update_env -> opra_system.evaluator.calc_perf
             opra_system.evaluator.calc_perf -> opra_system.evaluator.cycle_time
             opra_system.evaluator.cycle_time -> opra_system.evaluator.cf_similarity
             opra_system.evaluator.cf_similarity -> opra_system.evaluator.loss_evolution
