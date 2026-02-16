@@ -1,0 +1,183 @@
+{
+    "resource_occupancy": {
+        "Carmen Finacse": {
+            "in_use": 1,
+            "capacity": 1,
+            "utilization": 1.0,
+            "waiting": 0
+        },
+        "Kiu Kan": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Francois de Perrier": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Tesca Lobes": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Esmeralda Clay": {
+            "in_use": 1,
+            "capacity": 1,
+            "utilization": 1.0,
+            "waiting": 0
+        },
+        "Esmana Liubiata": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Karen Clarens": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Christian Francois": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Elvira Lores": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Magdalena Predutta": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Miu Hanwan": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Pedro Alvares": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Anne Olwada": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Sean Manney": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Penn Osterwalder": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Nico Ojenbeer": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Clement Duchot": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Anna Kaufmann": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Maris Freeman": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Heinz Gutschmidt": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Karalda Nimwada": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Fjodor Kowalski": {
+            "in_use": 1,
+            "capacity": 1,
+            "utilization": 1.0,
+            "waiting": 0
+        },
+        "Karel de Groot": {
+            "in_use": 1,
+            "capacity": 1,
+            "utilization": 1.0,
+            "waiting": 0
+        },
+        "Immanuel Karagianni": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Alberto Duport": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Francis Odell": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        },
+        "Kim Passa": {
+            "in_use": 0,
+            "capacity": 1,
+            "utilization": 0.0,
+            "waiting": 0
+        }
+    },
+    "total_cases_processing": 4,
+    "total_cases_waiting": 1,
+    "activities_with_waiting_cases": {
+        "Approve Purchase Order for payment": 1
+    },
+    "active_cases_status": {
+        "case_1": "Deliver Goods Services",
+        "case_2": "Approve Purchase Order for payment",
+        "case_6": "Deliver Goods Services",
+        "case_7": "Analyze Quotation Comparison Map"
+    },
+    "time_info": {
+        "current_time_internal_units": 169500.0,
+        "current_absolute_timestamp": "2011-01-03 05:05:00",
+        "day_of_week": "Monday",
+        "time_of_day": "05:05:00"
+    }
+}

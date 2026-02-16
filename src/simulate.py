@@ -27,19 +27,6 @@ start_timestamp = log[log_names.start_timestamp].min()
 time_unit = "seconds"
 
 setup: SimulationSetup = initializer.build(log, log_names, start_timestamp, time_unit)
-
-all_activities = set(log[log_names.activity].unique())
-timed_activities = set(setup.processing_time_policy.samples.keys())
-
-print("Activities with NO processing times:")
-for act in sorted(all_activities - timed_activities):
-    print(" ", act)
-
-
-print("Routing Policy :", setup.routing_policy)
-print("Processing Time Policy:", setup.processing_time_policy)
-print("Calendar Policy:", setup.calendar_policy)
-
 simulator = SimulatorEngine(setup)
 event_log = simulator.simulate(max_cases=200)
 

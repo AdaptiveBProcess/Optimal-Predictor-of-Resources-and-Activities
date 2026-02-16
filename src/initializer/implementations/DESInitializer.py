@@ -2,7 +2,6 @@ import pandas as pd
 
 
 from environment.simulator.core.log_names import LogColumnNames
-from environment.simulator.core.process_model import ProcessModel
 from environment.simulator.models.distributions.SkillBasedResourcePolicy import SkillBasedResourcePolicy
 from environment.simulator.models.distributions.EmpiricalArrivalPolicy import EmpiricalArrivalPolicy
 from environment.simulator.models.distributions.WeeklyCalendarPolicy import WeeklyCalendarPolicy
@@ -25,15 +24,6 @@ class DESInitializer(Initializer):
 
     def build(self, log, log_names: LogColumnNames, start_timestamp: str, time_unit: str) -> SimulationSetup:
         self.log_names = log_names
-
-        # activities = self._extract_activities(log)
-        # starts, ends = self._extract_start_end_activities(log)
-        # process_model = ProcessModel(
-        #     activities=activities,
-        #     start_activities=starts,
-        #     end_activities=ends,
-        # )
-
 
         routing = self._build_routing_policy(log)
         processing_times = self._build_processing_time_policy(log, time_unit)
