@@ -8,53 +8,53 @@ class SimulatorEngine:
     def __init__(self, simulationSetup: SimulationSetup):
         self.start_timestamp = pd.to_datetime(simulationSetup.start_timestamp)
         self.setup = simulationSetup
+        self.is_rl_mode = False
+        
+        # Simple Cache: Calculate these once so we don't repeat work in loops
+        self._activities = self._get_all_activities_list()
+        self._resources = self.setup.resource_policy.resources if hasattr(self.setup.resource_policy, 'resources') else []
+        
         self.reset()
 
     def reset(self, max_cases=None):
         self.env = simpy.Environment()
         self.event_log = []
-
-        # termination bookkeeping
         self.active_cases = 0
         self.no_more_arrivals = False
         self.current_activities = {}
-        self.last_activities = {} # Track the activity that just finished
+        self.last_activities = {} 
         self.waiting_requests = {}
         self.completed_cases = [] 
-        self.pending_decisions = [] # Decisions waiting for RL (activity, resource)
+        self.pending_decisions = [] 
 
         self.simpy_resources = {
             r.id: simpy.Resource(self.env, capacity=r.capacity)
-            for r in self.setup.resource_policy.resources
+            for r in self._resources
         }
 
         self.all_done = self.env.event()
-        self.decision_event = self.env.event()
+        self.decision_event = self.env.event() # Signals when RL intervention is needed
         
         self.env.process(self.case_generator(max_cases))
-        self.max_utilization = 0
 
     def simulate(self, until: float = None, max_cases: int = None):
+        """Standard SimPy simulation (Fast)"""
+        self.is_rl_mode = False 
         self.reset(max_cases=max_cases)
-
         if until is not None:
             self.env.run(until=until)
         else:
             self.env.run(until=self.all_done)
-
         return self.event_log
 
-    def has_pending_decision(self):
-        return len(self.pending_decisions) > 0
-
     def run_until_decision(self):
-        """
-        Runs the simulation until a decision is needed or simulation finishes.
-        """
-        while not self.has_pending_decision() and not self.all_done.triggered:
-            if not self.env._queue:
-                break
-            self.env.step()
+        """RL Simulation (Optimized Fast-Forward)"""
+        self.is_rl_mode = True 
+        
+        # If no one is waiting for a decision, let SimPy run at full speed
+        # until a decision event is triggered or the simulation finishes.
+        if not self.pending_decisions and not self.all_done.triggered:
+            self.env.run(until=simpy.events.AnyOf(self.env, [self.decision_event, self.all_done]))
 
         completed = self.completed_cases
         self.completed_cases = []
@@ -66,57 +66,41 @@ class SimulatorEngine:
         return None
 
     def apply_decision(self, activity, resource):
-        """
-        Applies a (activity, resource) decision from an external agent.
-        If activity is None, the case is considered finished.
-        """
+        """Resumes a paused case with the agent's choice"""
         if not self.pending_decisions:
             return False
             
         decision = self.pending_decisions.pop(0)
         decision["callback"].succeed((activity, resource))
         
-        # If no more pending decisions, reset the event for the next run_until_decision
+        # Reset the signal so we can wait for the next one
         if not self.pending_decisions:
             self.decision_event = self.env.event()
             
         return True
-
-    def case_generator(self, max_cases=None):
-        case_count = 0
-
-        while max_cases is None or case_count < max_cases:
-            interarrival = self.setup.arrival_policy.get_next_arrival_time()
-            yield self.env.timeout(interarrival)
-
-            case_count += 1
-            case = Case(case_id=f"case_{case_count}", events=[])
-            self.env.process(self.process_case(case))
-
-        self.no_more_arrivals = True
-        self._check_termination()
 
     def process_case(self, case: Case):
         case.start_time = self.env.now
         self.active_cases += 1
         
         while True:
-            # Pause and ask for (Activity, Resource)
-            decision_fulfilled = self.env.event()
-            self.pending_decisions.append({
-                "case": case,
-                "callback": decision_fulfilled
-            })
+            if self.is_rl_mode:
+                # 1. Pause point for RL
+                decision_fulfilled = self.env.event()
+                self.pending_decisions.append({"case": case, "callback": decision_fulfilled})
+                
+                if not self.decision_event.triggered:
+                    self.decision_event.succeed()
+                
+                activity, resource = yield decision_fulfilled
+            else:
+                # 2. Automatic path for normal simulation
+                last_act = self.last_activities.get(case.case_id)
+                activity = self.setup.routing_policy.get_next_activity(case, last_act)
+                if activity is None: break
+                resource = self.setup.resource_policy.select_resource(activity, case)
             
-            # Signal that a decision is needed
-            if not self.decision_event.triggered:
-                self.decision_event.succeed()
-            
-            # Wait for intervention
-            activity, resource = yield decision_fulfilled
-            
-            if activity is None:
-                break
+            if activity is None: break
 
             self.current_activities[case.case_id] = activity
             yield self.env.process(self.execute_activity(case, activity, resource))
@@ -124,23 +108,17 @@ class SimulatorEngine:
             self.last_activities[case.case_id] = activity
             if case.case_id in self.current_activities:
                 del self.current_activities[case.case_id]
-            
-            # Check for max utilization (optional monitoring)
-            avg_utilization = sum(res.count for res in self.simpy_resources.values()) / sum(res.capacity for res in self.simpy_resources.values()) if sum(res.capacity for res in self.simpy_resources.values()) > 0 else 0
-            if avg_utilization > self.max_utilization:
-                self.max_utilization = avg_utilization
-                js.dump(self.state(), open("state_at_max_utilization.json", "w"), indent=4)
 
         self.active_cases -= 1
         case.end_time = self.env.now
         case.cycle_time = case.end_time - case.start_time
         self.completed_cases.append(case)
         self._check_termination()
-    
+
     def execute_activity(self, case: Case, activity, resource):
         simpy_resource = self.simpy_resources[resource.id]
-
-        # calendar wait
+        
+        # Calendar wait logic
         next_time = self.setup.calendar_policy.next_working_time(self.env.now)
         if next_time > self.env.now:
             yield self.env.timeout(next_time - self.env.now)
@@ -150,107 +128,64 @@ class SimulatorEngine:
 
         with simpy_resource.request() as req:
             yield req
-
             del self.waiting_requests[process]
 
-            start = self.env.now
             duration = self.setup.processing_time_policy.get_activity_duration(activity, resource)
             yield self.env.timeout(duration)
-            end = self.env.now
-
- 
+            
             self.event_log.append({
-                "case": case.case_id,
-                "activity": activity,
-                "resource": resource.id,
-                "start": self.start_timestamp + pd.to_timedelta(start, unit=self.setup.time_unit),
-                "end": self.start_timestamp + pd.to_timedelta(end, unit=self.setup.time_unit)
+                "case": case.case_id, "activity": activity, "resource": resource.id,
+                "start": self.env.now - duration, "end": self.env.now
             })
     
-    def _check_termination(self):
-        if self.no_more_arrivals and self.active_cases == 0:
-            if not self.all_done.triggered: 
-                self.all_done.succeed()
+    def state(self):
+        """Minimal state dictionary (No Pandas)"""
+        res_occ = {rid: {"in_use": r.count, "capacity": r.capacity, "waiting": len(r.queue)} 
+                   for rid, r in self.simpy_resources.items()}
+        
+        # Calculate activity waiting counts
+        act_wait = {}
+        for _, (_, act) in self.waiting_requests.items():
+            act_wait[str(act)] = act_wait.get(str(act), 0) + 1
+        for req in self.pending_decisions:
+            a_str = str(req.get("activity", "PENDING"))
+            act_wait[a_str] = act_wait.get(a_str, 0) + 1
 
+        return {
+            "resource_occupancy": res_occ,
+            "activities_waiting": act_wait,
+            "total_waiting": len(self.waiting_requests) + len(self.pending_decisions),
+            "internal_time": self.env.now
+        }
 
-    @property
-    def all_activities(self):
-        # Derive all activities from the routing policy
+    def _get_all_activities_list(self):
         if hasattr(self.setup.routing_policy, 'probabilities'):
-            activities = set()
+            acts = set()
             for src, targets in self.setup.routing_policy.probabilities.items():
-                if src is not None:
-                    activities.add(src)
-                for tgt in targets:
-                    if tgt is not None:
-                        activities.add(tgt)
-            return sorted(list(activities)) + [None]
+                if src: acts.add(src)
+                for tgt in targets: 
+                    if tgt: acts.add(tgt)
+            return sorted(list(acts)) + [None]
         return [None]
 
     @property
-    def all_resources(self):
-        # Derive all resources from the resource policy
-        if hasattr(self.setup.resource_policy, 'resources'):
-            return self.setup.resource_policy.resources
-        return []
-
+    def all_activities(self): return self._activities
     @property
-    def num_activities(self):
-        return len(self.all_activities)
-
+    def all_resources(self): return self._resources
     @property
-    def num_resources(self):
-        return len(self.all_resources)
+    def num_activities(self): return len(self._activities)
+    @property
+    def num_resources(self): return len(self._resources)
 
-    def state(self):
-        resource_occupancy = {}
-        total_cases_processing = 0
-        
-        # Calculate occupancy and processing counts
-        for res_id, simpy_res in self.simpy_resources.items():
-            resource_occupancy[res_id] = {
-                "in_use": simpy_res.count,
-                "capacity": simpy_res.capacity,
-                "utilization": simpy_res.count / simpy_res.capacity if simpy_res.capacity > 0 else 0,
-                "waiting": len(simpy_res.queue) # Still useful to have per-resource wait count
-            }
-            total_cases_processing += simpy_res.count
-        
-        # Calculate waiting activities and total waiting count
-        activities_with_waiting_cases = {}
-        
-        # 1. Cases waiting for SimPy resources (already allocated but busy)
-        for process, (case, activity) in self.waiting_requests.items():
-            activity_str = str(activity)
-            activities_with_waiting_cases[activity_str] = activities_with_waiting_cases.get(activity_str, 0) + 1
-        
-        # 2. Cases waiting for RL decision
-        for req in self.pending_decisions:
-            # Activity might not be known yet if we are asking the agent for both Activity and Resource
-            activity_str = str(req.get("activity", "PENDING_ACTIVITY"))
-            activities_with_waiting_cases[activity_str] = activities_with_waiting_cases.get(activity_str, 0) + 1
+    def case_generator(self, max_cases=None):
+        case_count = 0
+        while max_cases is None or case_count < max_cases:
+            yield self.env.timeout(self.setup.arrival_policy.get_next_arrival_time())
+            case_count += 1
+            self.env.process(self.process_case(Case(case_id=f"case_{case_count}", events=[])))
+        self.no_more_arrivals = True
+        self._check_termination()
 
-        total_cases_waiting = len(self.waiting_requests) + len(self.pending_decisions)
-
-        # Active cases and their current activities
-        active_cases_status = {
-            case_id: str(activity) for case_id, activity in self.current_activities.items()
-        }
-
-        # Day of week / time of day for calendar effects
-        current_absolute_time = self.start_timestamp + pd.to_timedelta(self.env.now, unit=self.setup.time_unit)
-        time_info = {
-            "current_time_internal_units": self.env.now,
-            "current_absolute_timestamp": str(current_absolute_time),
-            "day_of_week": current_absolute_time.day_name(),
-            "time_of_day": str(current_absolute_time.time())
-        }
-
-        return {
-            "resource_occupancy": resource_occupancy,
-            "total_cases_processing": total_cases_processing,
-            "total_cases_waiting": total_cases_waiting,
-            "activities_with_waiting_cases": activities_with_waiting_cases,
-            "active_cases_status": active_cases_status,
-            "time_info": time_info
-        }
+    def _check_termination(self):
+        if self.no_more_arrivals and self.active_cases == 0:
+            if not self.all_done.triggered: self.all_done.succeed()

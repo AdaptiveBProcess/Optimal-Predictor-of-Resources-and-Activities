@@ -52,22 +52,26 @@ terminated = False
 truncated = False
 total_reward = 0
 
+fake_agent = {
+    'routing_policy': setup.routing_policy,
+    'resources': setup.resource_policy
+}
+
+activities_set = simulator.all_activities
+resources_set = simulator.all_resources
+
 while not (terminated or truncated):
     # --- Agent Decision Logic (Conceptual) ---
     
     # a) Get current case and its last activity
     case_needing_decision = simulator.get_case_needing_decision()
+    if case_needing_decision is None:
+        break
     current_activity = simulator.last_activities.get(case_needing_decision.case_id) if case_needing_decision else None
     
     # b) Get possible next activities from Routing Policy
-    probs = setup.routing_policy.probabilities.get(current_activity, {})
-    if not probs:
-        feasible_activities = [None]
-    else:
-        feasible_activities = list(probs.keys())
-
     # c) Agent selects activity (simulated random choice from feasible)
-    chosen_activity = random.choice(feasible_activities)
+    chosen_activity = fake_agent['routing_policy'].get_next_activity(case_needing_decision, current_activity)
     
     if chosen_activity is None:
         act_idx = simulator.all_activities.index(None)
@@ -80,21 +84,16 @@ while not (terminated or truncated):
             act_idx = 0 
             
         # d) Get resource feasibility mask
-        feasible_resources = [
-            i for i, r in enumerate(simulator.all_resources)
-            if chosen_activity in r.skills
-        ]
-        
-        if not feasible_resources:
-            res_idx = random.randint(0, simulator.num_resources - 1)
-        else:
-            res_idx = random.choice(feasible_resources)
+        chosen_resource = fake_agent['resources'].select_resource(chosen_activity, case_needing_decision)
+        res_idx = simulator.all_resources.index(chosen_resource) if chosen_resource in simulator.all_resources else 0
 
     # 5. Step the environment
     action = np.array([act_idx, res_idx])
     obs, reward, terminated, truncated, info = env.step(action)
     
     total_reward += reward
+    
+    print(f"Step: Case={case_needing_decision.case_id}, Activity={simulator.all_activities[act_idx]}, Resource={simulator.all_resources[res_idx]}, Reward={reward:.2f}, Total Reward={total_reward:.2f}")
     if reward > 0:
         print(f"Case completed! Reward: {reward}")
 

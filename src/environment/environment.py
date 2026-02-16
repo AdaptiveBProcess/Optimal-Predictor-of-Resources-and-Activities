@@ -69,8 +69,10 @@ class BusinessProcessEnvironment(gym.Env):
     def vectorize_state(self):
         """
         Converts the simulator's dictionary state into a numerical vector.
+        Optimized to avoid Pandas overhead in the loop.
         """
         sim_state = self.simulator.state()
+        internal_time = sim_state["internal_time"]
         
         # 1. Resource Occupancy (3 features per resource)
         res_features = []
@@ -85,22 +87,19 @@ class BusinessProcessEnvironment(gym.Env):
         # 2. Activity Waiting Counts (1 feature per activity)
         act_features = []
         for act in self.simulator.all_activities:
-            wait_count = sim_state["activities_with_waiting_cases"].get(str(act), 0)
+            wait_count = sim_state["activities_waiting"].get(str(act), 0)
             act_features.append(float(wait_count))
             
-        # 3. Global Counts (2 features)
-        global_features = [
-            float(sim_state["total_cases_processing"]),
-            float(sim_state["total_cases_waiting"])
-        ]
+        # 3. Global Counts (1 feature)
+        global_features = [float(sim_state["total_waiting"])]
         
-        # 4. Time Features (3 features)
-        dt = pd.to_datetime(sim_state["time_info"]["current_absolute_timestamp"])
-        day_of_week = float(dt.dayofweek)
-        time_of_day = float(dt.hour * 3600 + dt.minute * 60 + dt.second)
-        internal_time = float(sim_state["time_info"]["current_time_internal_units"])
+        # 4. Fast Time Features (No Pandas!)
+        # Assuming seconds for math. 3600s = 1hr, 86400s = 1day
+        # If time_unit is different, these constants should be adjusted
+        time_of_day = (internal_time % 86400) / 86400.0  # Normalized 0-1
+        day_of_week = (internal_time // 86400) % 7
         
-        time_features = [internal_time, day_of_week, time_of_day]
+        time_features = [internal_time, float(day_of_week), float(time_of_day)]
         
         return np.array(res_features + act_features + global_features + time_features, dtype=np.float32)
     
@@ -109,9 +108,9 @@ class BusinessProcessEnvironment(gym.Env):
     def state_dim(self):
         # 3 features per resource (in_use, capacity, waiting)
         # 1 feature per activity (waiting count)
-        # 2 global features (total processing, total waiting)
+        # 1 global feature (total waiting)
         # 3 time features (internal time, day of week, time of day)
-        return (3 * self.simulator.num_resources) + self.simulator.num_activities + 2 + 3
+        return (3 * self.simulator.num_resources) + self.simulator.num_activities + 1 + 3
 
     def _compute_state(self):
         return self.vectorize_state()
