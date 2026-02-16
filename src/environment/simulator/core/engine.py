@@ -18,6 +18,7 @@ class SimulatorEngine:
         self.active_cases = 0
         self.no_more_arrivals = False
         self.current_activities = {}
+        self.last_activities = {} # Track the activity that just finished
         self.waiting_requests = {}
         self.completed_cases = [] 
         self.pending_decisions = [] # Decisions waiting for RL (activity, resource)
@@ -115,12 +116,12 @@ class SimulatorEngine:
             activity, resource = yield decision_fulfilled
             
             if activity is None:
-                # Case termination signaled by agent
                 break
 
             self.current_activities[case.case_id] = activity
             yield self.env.process(self.execute_activity(case, activity, resource))
             
+            self.last_activities[case.case_id] = activity
             if case.case_id in self.current_activities:
                 del self.current_activities[case.case_id]
             
@@ -183,8 +184,8 @@ class SimulatorEngine:
                 for tgt in targets:
                     if tgt is not None:
                         activities.add(tgt)
-            return sorted(list(activities))
-        return []
+            return sorted(list(activities)) + [None]
+        return [None]
 
     @property
     def all_resources(self):
@@ -225,7 +226,8 @@ class SimulatorEngine:
         
         # 2. Cases waiting for RL decision
         for req in self.pending_decisions:
-            activity_str = str(req["activity"])
+            # Activity might not be known yet if we are asking the agent for both Activity and Resource
+            activity_str = str(req.get("activity", "PENDING_ACTIVITY"))
             activities_with_waiting_cases[activity_str] = activities_with_waiting_cases.get(activity_str, 0) + 1
 
         total_cases_waiting = len(self.waiting_requests) + len(self.pending_decisions)
