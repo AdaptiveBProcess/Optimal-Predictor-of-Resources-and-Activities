@@ -114,3 +114,79 @@ class BusinessProcessEnvironment(gym.Env):
 
     def _compute_state(self):
         return self.vectorize_state()
+
+    def get_activity_mask(self, case, k=None, p=0.9):
+        """
+        Returns a binary mask for feasible next activities based on the simulator's
+        RoutingPolicy, filtered by Top-K and Top-P (Nucleus) sampling.
+        """
+        current_activity = self.simulator.last_activities.get(case.case_id)
+        probs_dict = self.simulator.setup.routing_policy.probabilities.get(current_activity, {})
+        
+        mask = np.zeros(self.simulator.num_activities, dtype=np.float32)
+        
+        if not probs_dict:
+            # If no transitions are defined, only END (None) is allowed
+            # None is at the last index of all_activities
+            mask[-1] = 1.0
+        else:
+            # Map probabilities to indices
+            for act_name, prob in probs_dict.items():
+                try:
+                    idx = self.simulator.all_activities.index(act_name)
+                    mask[idx] = prob
+                except ValueError:
+                    continue # Should not happen if all_activities is correct
+            
+        # 1. Apply Top-K filtering
+        if k is not None and 0 < k < len(mask):
+            top_k_indices = np.argsort(mask)[-k:]
+            new_mask = np.zeros_like(mask)
+            new_mask[top_k_indices] = mask[top_k_indices]
+            mask = new_mask
+            
+        # 2. Apply Top-P (Nucleus) filtering
+        if p < 1.0:
+            sorted_indices = np.argsort(mask)[::-1]
+            sorted_probs = mask[sorted_indices]
+            cumulative_probs = np.cumsum(sorted_probs)
+            
+            # Find the cutoff: keep indices until cumulative probability exceeds p
+            cutoff_idx = np.where(cumulative_probs >= p)[0]
+            if len(cutoff_idx) > 0:
+                cutoff = cutoff_idx[0]
+                top_p_indices = sorted_indices[:cutoff + 1]
+                new_mask = np.zeros_like(mask)
+                new_mask[top_p_indices] = mask[top_p_indices]
+                mask = new_mask
+
+        # Return binary mask (1 if activity is allowed, 0 otherwise)
+        binary_mask = (mask > 0).astype(np.float32)
+        
+        # Ensure at least one activity is allowed (fallback to END)
+        if binary_mask.sum() == 0:
+            binary_mask[-1] = 1.0
+            
+        return binary_mask
+
+    def get_resource_mask(self, activity_name, case=None):
+        """
+        Returns a binary mask of feasible resources for a given activity.
+        A resource is feasible if it has the required skills.
+        """
+        mask = np.zeros(self.simulator.num_resources, dtype=np.float32)
+        
+        # If activity is END (None), all resources are technically feasible (no-op)
+        if activity_name is None:
+            return np.ones(self.simulator.num_resources, dtype=np.float32)
+            
+        for i, res in enumerate(self.simulator.all_resources):
+            # Check if resource has the skill for this activity
+            if activity_name in res.skills:
+                mask[i] = 1.0
+        
+        # Fallback: if no resource is skilled (should not happen with good data), allow all
+        if mask.sum() == 0:
+            return np.ones(self.simulator.num_resources, dtype=np.float32)
+            
+        return mask

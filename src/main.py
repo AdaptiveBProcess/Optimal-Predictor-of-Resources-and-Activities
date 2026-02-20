@@ -8,7 +8,7 @@ from environment.simulator.core.setup import SimulationSetup
 from environment.environment import BusinessProcessEnvironment
 from environment.simulator.core.log_names import LogColumnNames
 from environment.simulator.core.engine import SimulatorEngine
-
+from agent.agent import PPOAgent
 # Set seeds for reproducibility
 random.seed(42)
 np.random.seed(42)
@@ -52,40 +52,40 @@ terminated = False
 truncated = False
 total_reward = 0
 
-fake_agent = {
-    'routing_policy': setup.routing_policy,
-    'resources': setup.resource_policy
-}
+# Initialize actual agent
+agent = PPOAgent(
+    state_dim=env.observation_space.shape[0], 
+    num_activities=simulator.num_activities, 
+    num_resources=simulator.num_resources
+)
 
 activities_set = simulator.all_activities
 resources_set = simulator.all_resources
 
 while not (terminated or truncated):
-    # --- Agent Decision Logic (Conceptual) ---
-    
-    # a) Get current case and its last activity
+    # a) Get current case needing decision
     case_needing_decision = simulator.get_case_needing_decision()
     if case_needing_decision is None:
+        # If no case needs decision but simulation isn't done, 
+        # it might be waiting for arrivals or something.
+        # But in this loop, we usually expect one if not terminated.
         break
-    current_activity = simulator.last_activities.get(case_needing_decision.case_id) if case_needing_decision else None
     
-    # b) Get possible next activities from Routing Policy
-    # c) Agent selects activity (simulated random choice from feasible)
-    chosen_activity = fake_agent['routing_policy'].get_next_activity(case_needing_decision, current_activity)
+    # b) Get activity mask
+    activity_mask = env.get_activity_mask(case_needing_decision, k=None, p=0.9)
     
-    if chosen_activity is None:
-        act_idx = simulator.all_activities.index(None)
-        res_idx = 0
-    else:
-        # Find index in all_activities
-        try:
-            act_idx = simulator.all_activities.index(chosen_activity)
-        except ValueError:
-            act_idx = 0 
-            
-        # d) Get resource feasibility mask
-        chosen_resource = fake_agent['resources'].select_resource(chosen_activity, case_needing_decision)
-        res_idx = simulator.all_resources.index(chosen_resource) if chosen_resource in simulator.all_resources else 0
+    # c) Define resource mask callback for the agent
+    def res_mask_cb(act_idx):
+        act_name = simulator.all_activities[act_idx]
+        return env.get_resource_mask(act_name, case_needing_decision)
+
+    # d) Agent selects action (greedy/deterministic)
+    act_idx, res_idx = agent.select_action(
+        state=obs, 
+        activity_mask=activity_mask, 
+        resource_mask_callback=res_mask_cb,
+        deterministic=True
+    )
 
     # 5. Step the environment
     action = np.array([act_idx, res_idx])
@@ -93,7 +93,10 @@ while not (terminated or truncated):
     
     total_reward += reward
     
-    print(f"Step: Case={case_needing_decision.case_id}, Activity={simulator.all_activities[act_idx]}, Resource={simulator.all_resources[res_idx]}, Reward={reward:.2f}, Total Reward={total_reward:.2f}")
+    chosen_act_name = simulator.all_activities[act_idx]
+    chosen_res_id = simulator.all_resources[res_idx].id
+    
+    print(f"Step: Case={case_needing_decision.case_id}, Activity={chosen_act_name}, Resource={chosen_res_id}, Reward={reward:.2f}, Total Reward={total_reward:.2f}")
     if reward > 0:
         print(f"Case completed! Reward: {reward}")
 

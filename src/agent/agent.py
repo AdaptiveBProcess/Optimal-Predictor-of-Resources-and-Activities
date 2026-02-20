@@ -103,3 +103,53 @@ class PPOPolicy(nn.Module):
         value = self.value_head(features).squeeze(-1)
 
         return log_prob, entropy, value
+
+    def get_activity_logits(self, state):
+        features = self.backbone(state)
+        return self.activity_head(features)
+
+    def get_resource_logits(self, state, activity):
+        features = self.backbone(state)
+        act_emb = self.activity_embedding(activity)
+        res_input = torch.cat([features, act_emb], dim=-1)
+        return self.resource_head(res_input)
+
+class PPOAgent:
+    def __init__(self, state_dim, num_activities, num_resources, device="cpu"):
+        self.device = device
+        self.policy = PPOPolicy(state_dim, num_activities, num_resources).to(device)
+        self.num_activities = num_activities
+        self.num_resources = num_resources
+
+    def select_action(self, state, activity_mask, resource_mask_callback, deterministic=True):
+        """
+        Selects an activity and then a resource using masks.
+        resource_mask_callback: a function(activity_idx) -> resource_mask
+        """
+        self.policy.eval()
+        with torch.no_grad():
+            state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            act_mask_t = torch.FloatTensor(activity_mask).unsqueeze(0).to(self.device)
+
+            # 1. Activity selection
+            act_logits = self.policy.get_activity_logits(state_t)
+            act_logits = act_logits.masked_fill(act_mask_t == 0, -1e9)
+            
+            if deterministic:
+                activity_idx = torch.argmax(act_logits, dim=-1)
+            else:
+                activity_idx = Categorical(logits=act_logits).sample()
+
+            # 2. Resource selection (conditional)
+            res_mask = resource_mask_callback(activity_idx.item())
+            res_mask_t = torch.FloatTensor(res_mask).unsqueeze(0).to(self.device)
+
+            res_logits = self.policy.get_resource_logits(state_t, activity_idx)
+            res_logits = res_logits.masked_fill(res_mask_t == 0, -1e9)
+
+            if deterministic:
+                resource_idx = torch.argmax(res_logits, dim=-1)
+            else:
+                resource_idx = Categorical(logits=res_logits).sample()
+
+        return activity_idx.item(), resource_idx.item()
