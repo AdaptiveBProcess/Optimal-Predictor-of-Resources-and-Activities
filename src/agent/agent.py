@@ -115,41 +115,141 @@ class PPOPolicy(nn.Module):
         return self.resource_head(res_input)
 
 class PPOAgent:
-    def __init__(self, state_dim, num_activities, num_resources, device="cpu"):
+    def __init__(self, state_dim, num_activities, num_resources, 
+                 lr=3e-4, gamma=0.99, K_epochs=4, eps_clip=0.2, device="cpu"):
         self.device = device
+        self.gamma = gamma
+        self.eps_clip = eps_clip
+        self.K_epochs = K_epochs
+        
         self.policy = PPOPolicy(state_dim, num_activities, num_resources).to(device)
-        self.num_activities = num_activities
-        self.num_resources = num_resources
+        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
+        self.policy_old = PPOPolicy(state_dim, num_activities, num_resources).to(device)
+        self.policy_old.load_state_dict(self.policy.state_dict())
+        
+        self.MseLoss = nn.MSELoss()
+        self.buffer = RolloutBuffer()
 
-    def select_action(self, state, activity_mask, resource_mask_callback, deterministic=True):
-        """
-        Selects an activity and then a resource using masks.
-        resource_mask_callback: a function(activity_idx) -> resource_mask
-        """
-        self.policy.eval()
+    def select_action(self, state, activity_mask, resource_mask_callback, deterministic=False):
+        self.policy_old.eval()
         with torch.no_grad():
             state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             act_mask_t = torch.FloatTensor(activity_mask).unsqueeze(0).to(self.device)
 
-            # 1. Activity selection
-            act_logits = self.policy.get_activity_logits(state_t)
+            # 1. Activity
+            act_logits = self.policy_old.get_activity_logits(state_t)
             act_logits = act_logits.masked_fill(act_mask_t == 0, -1e9)
+            act_dist = Categorical(logits=act_logits)
             
             if deterministic:
                 activity_idx = torch.argmax(act_logits, dim=-1)
             else:
-                activity_idx = Categorical(logits=act_logits).sample()
+                activity_idx = act_dist.sample()
 
-            # 2. Resource selection (conditional)
+            # 2. Resource
             res_mask = resource_mask_callback(activity_idx.item())
             res_mask_t = torch.FloatTensor(res_mask).unsqueeze(0).to(self.device)
 
-            res_logits = self.policy.get_resource_logits(state_t, activity_idx)
+            res_logits = self.policy_old.get_resource_logits(state_t, activity_idx)
             res_logits = res_logits.masked_fill(res_mask_t == 0, -1e9)
+            res_dist = Categorical(logits=res_logits)
 
             if deterministic:
                 resource_idx = torch.argmax(res_logits, dim=-1)
             else:
-                resource_idx = Categorical(logits=res_logits).sample()
+                resource_idx = res_dist.sample()
+
+            log_prob = act_dist.log_prob(activity_idx) + res_dist.log_prob(resource_idx)
+            
+            # Use forward to get value or calculate it from features
+            features = self.policy_old.backbone(state_t)
+            value = self.policy_old.value_head(features).squeeze(-1)
+
+        # Store masks and other info for the update
+        self.buffer.states.append(state_t)
+        self.buffer.activities.append(activity_idx)
+        self.buffer.resources.append(resource_idx)
+        self.buffer.logprobs.append(log_prob)
+        self.buffer.state_values.append(value)
+        self.buffer.activity_masks.append(act_mask_t)
+        self.buffer.resource_masks.append(res_mask_t)
 
         return activity_idx.item(), resource_idx.item()
+
+    def update(self):
+        # Monte Carlo estimate of returns
+        rewards = []
+        discounted_reward = 0
+        for reward, is_terminal in zip(reversed(self.buffer.rewards), reversed(self.buffer.is_terminals)):
+            if is_terminal:
+                discounted_reward = 0
+            discounted_reward = reward + (self.gamma * discounted_reward)
+            rewards.insert(0, discounted_reward)
+            
+        # Normalizing the rewards
+        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
+        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
+
+        # convert list to tensor
+        old_states = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(self.device)
+        old_activities = torch.squeeze(torch.stack(self.buffer.activities, dim=0)).detach().to(self.device)
+        old_resources = torch.squeeze(torch.stack(self.buffer.resources, dim=0)).detach().to(self.device)
+        old_logprobs = torch.squeeze(torch.stack(self.buffer.logprobs, dim=0)).detach().to(self.device)
+        old_state_values = torch.squeeze(torch.stack(self.buffer.state_values, dim=0)).detach().to(self.device)
+        old_activity_masks = torch.squeeze(torch.stack(self.buffer.activity_masks, dim=0)).detach().to(self.device)
+        old_resource_masks = torch.squeeze(torch.stack(self.buffer.resource_masks, dim=0)).detach().to(self.device)
+
+        # calculate advantages
+        advantages = rewards.detach() - old_state_values.detach()
+
+        # Optimize policy for K epochs
+        for _ in range(self.K_epochs):
+            # Evaluating old actions and values
+            logprobs, entropy, state_values = self.policy.evaluate(
+                old_states, old_activities, old_resources, 
+                old_activity_masks, old_resource_masks
+            )
+
+            # Finding the ratio (pi_theta / pi_theta__old)
+            ratios = torch.exp(logprobs - old_logprobs.detach())
+
+            # Finding Surrogate Loss
+            surr1 = ratios * advantages
+            surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
+
+            # final loss of PyTorch optimization
+            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * entropy
+            
+            # take gradient step
+            self.optimizer.zero_grad()
+            loss.mean().backward()
+            self.optimizer.step()
+            
+        # Copy new weights into old policy
+        self.policy_old.load_state_dict(self.policy.state_dict())
+
+        # clear buffer
+        self.buffer.clear()
+
+class RolloutBuffer:
+    def __init__(self):
+        self.states = []
+        self.activities = []
+        self.resources = []
+        self.logprobs = []
+        self.rewards = []
+        self.state_values = []
+        self.is_terminals = []
+        self.activity_masks = []
+        self.resource_masks = []
+    
+    def clear(self):
+        del self.states[:]
+        del self.activities[:]
+        del self.resources[:]
+        del self.logprobs[:]
+        del self.rewards[:]
+        del self.state_values[:]
+        del self.is_terminals[:]
+        del self.activity_masks[:]
+        del self.resource_masks[:]

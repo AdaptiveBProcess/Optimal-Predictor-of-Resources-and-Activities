@@ -41,7 +41,7 @@ sla_threshold = np.percentile(cycle_times, 75)
 print(f"SLA Threshold (p75): {sla_threshold:.2f} seconds")
 
 # 3. Initialize Environment
-max_cases = 10
+max_cases = 200
 env = BusinessProcessEnvironment(simulator, sla_threshold=sla_threshold, max_cases=max_cases)
 
 # 4. Agent Simulation Loop
@@ -56,19 +56,14 @@ total_reward = 0
 agent = PPOAgent(
     state_dim=env.observation_space.shape[0], 
     num_activities=simulator.num_activities, 
-    num_resources=simulator.num_resources
+    num_resources=simulator.num_resources,
+    lr=1e-3, # Higher LR for quick experimentation
 )
-
-activities_set = simulator.all_activities
-resources_set = simulator.all_resources
 
 while not (terminated or truncated):
     # a) Get current case needing decision
     case_needing_decision = simulator.get_case_needing_decision()
     if case_needing_decision is None:
-        # If no case needs decision but simulation isn't done, 
-        # it might be waiting for arrivals or something.
-        # But in this loop, we usually expect one if not terminated.
         break
     
     # b) Get activity mask
@@ -79,26 +74,36 @@ while not (terminated or truncated):
         act_name = simulator.all_activities[act_idx]
         return env.get_resource_mask(act_name, case_needing_decision)
 
-    # d) Agent selects action (greedy/deterministic)
+    # d) Agent selects action (non-deterministic for exploration during training)
     act_idx, res_idx = agent.select_action(
         state=obs, 
         activity_mask=activity_mask, 
         resource_mask_callback=res_mask_cb,
-        deterministic=True
+        deterministic=False
     )
 
     # 5. Step the environment
     action = np.array([act_idx, res_idx])
-    obs, reward, terminated, truncated, info = env.step(action)
+    next_obs, reward, terminated, truncated, info = env.step(action)
     
+    # Store reward and terminal flag in agent buffer
+    agent.buffer.rewards.append(reward)
+    agent.buffer.is_terminals.append(terminated or truncated)
+    
+    obs = next_obs
     total_reward += reward
     
     chosen_act_name = simulator.all_activities[act_idx]
     chosen_res_id = simulator.all_resources[res_idx].id
     
     print(f"Step: Case={case_needing_decision.case_id}, Activity={chosen_act_name}, Resource={chosen_res_id}, Reward={reward:.2f}, Total Reward={total_reward:.2f}")
-    if reward > 0:
-        print(f"Case completed! Reward: {reward}")
+
+print(f"Simulation finished. Total Reward: {total_reward}")
+
+# 6. Update Agent (Training)
+print("Updating policy...")
+agent.update()
+print("Policy updated.")
 
 print(f"Simulation finished. Total Reward: {total_reward}")
 
