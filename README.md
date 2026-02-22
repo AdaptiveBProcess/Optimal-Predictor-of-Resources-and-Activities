@@ -1,119 +1,156 @@
-# OPRA
-Optimal Predictor of Resources and Activities
+# OPRA: Optimizing Process Resource Allocation with RL and Simulation
 
+## Overview
 
-## Set Up
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
-![PyTorch](https://img.shields.io/badge/pytorch-1.9+-orange.svg)
+OPRA (Optimizing Process Resource Allocation) is a hybrid simulation-optimization framework designed to improve business processes. At its core, it implements a **plug-and-play discrete-event process simulator** built on top of **SimPy**, driven primarily by **event logs**. It combines a data-driven Discrete Event Simulator (DES) with cutting-edge Machine Learning (ML) and Reinforcement Learning (RL) techniques to find optimal resource allocation policies.
 
-Go docs Folder
-## 📖 Overview
+The core idea is to:
+- Take an event log
+- Infer behavioral components (routing, timing, arrivals, calendars, etc.)
+- Assemble them into a simulation using interchangeable **policies**
+- Allow mixing paradigms: classic DES, empirical distributions, and ML-based models
 
-This repository is a **fork** and extension of two foundational reinforcement learning papers. It implements a novel agent architecture that combines **search-based planning** (e.g., MCTS) with an explicit **action prediction mechanism**.
+While providing a powerful "what-if" analysis tool to model existing business processes, the primary objective of this project is to leverage RL agents to explore and discover new, more efficient policies for allocating resources, routing cases, and managing temporal aspects of the process. The simulator is the core of this framework, providing the environment for the RL agent to learn and improve. It's intended to be easy to use for beginners (reasonable defaults) and highly extensible for advanced users and research use cases.
 
-While traditional agents focus solely on maximizing reward, this version introduces an auxiliary objective: **predicting future actions**. This capability enhances the agent's understanding of environment dynamics and improves sample efficiency, particularly in complex, partial-information environments.
+## Problem Statement
 
-### 📄 Basis Papers
-This project builds upon the logic and codebases of:
-1.  **[Insert Title of Paper 1 - e.g., Mastering Atari with Discrete World Models (MuZero)]**
-2.  **[Insert Title of Paper 2 - e.g., Predicting Future Actions of Reinforcement Learning Agents]**
+In many business processes, allocating the right resource to the right task at the right time is critical for efficiency, cost reduction, and meeting service-level agreements (SLAs). However, finding the optimal allocation policy is a complex combinatorial problem, especially in dynamic environments with stochastic events and complex constraints (like resource calendars). Traditional analytical methods often fall short.
 
----
+OPRA addresses this by framing the resource allocation problem as a reinforcement learning task. An RL agent learns a policy by interacting with a realistic simulation of the business process.
 
-## 🧠 Project Logic & Architecture
+## Key Features
 
-The core logic of this project integrates a **World Model** with a **Search Policy**, augmented by an **Action Predictor**.
+*   **Powerful Discrete Event Simulation Core:** The simulator, built on SimPy, offers a flexible and robust core for modeling complex business processes.
+*   **Pluggable and Extensible Policies:** All behavioral aspects of the simulation (e.g., routing, processing times, resource allocation, arrivals, calendars) are defined by interchangeable policies. These can range from simple rule-based policies to empirical distributions, or advanced ML/RL-based models.
+*   **Data-Driven Initialization:** The `Initializer` automatically configures simulation parameters (e.g., arrival rates, activity durations, routing probabilities) from real-world event logs (XES/CSV format), facilitating easy setup from existing data.
+*   **Realistic Resource Calendars:** Model and incorporate realistic resource availability, including shifts, breaks, and holidays, influencing activity execution.
+*   **Reinforcement Learning Environment:** The framework provides a standard interface (similar to OpenAI Gym) for an RL agent to interact with the simulation, receive observations, take actions, and get rewards, enabling learning of optimal policies.
 
-### 1. The World Model (Representation & Dynamics)
-The agent maintains an internal model of the environment.
-*   **Representation Network**: Encodes the raw observation (e.g., pixels) into a compact latent state $s_t$.
-*   **Dynamics Network**: Predicts the next latent state $s_{t+1}$ and reward $r_t$ given a state $s_t$ and an action $a_t$.
+## Architecture
 
-### 2. Search-Based Planning (MCTS)
-Instead of acting blindly, the agent performs a **Monte Carlo Tree Search (MCTS)** within its learned latent space.
-*   It simulates potential future trajectories using the Dynamics Network.
-*   It balances exploration (visiting new states) and exploitation (maximizing value) to select the best immediate action.
+### High-level Architecture
 
-### 3. The Action Predictor (The "Fork" Contribution)
-This is the key modification from the original papers. We introduce a mechanism to predict actions explicitly:
-*   **Logic**: The agent does not just output a policy $\pi$; it also outputs a predicted action distribution $\hat{a}$ for future timesteps or for other agents in the environment.
-*   **Training**: The network is trained with an additional loss term that minimizes the difference between the *predicted* action and the *actual* optimal action (or the action taken by an expert/opponent).
-*   **Benefit**: This forces the internal representation to capture information specifically relevant to agency and decision-making, rather than just visual reconstruction.
+The simulator follows a **policy-based / hexagonal architecture**.
 
----
+### Core Concepts
 
-## 📂 Repository Structure
+-   **SimulatorEngine**: Orchestrates the simulation loop, owns the SimPy environment (`env`), executes cases and activities, and collects an event log as output.
+-   **SimulationSetup**: An immutable configuration object that assembles all policies and global settings, passed into the simulator at initialization.
+-   **Initializer**: Builds a `SimulationSetup` from an event log, encapsulating all log-to-behavior inference. Different initializers may exist (DES, ML-based, hybrid).
+
+The project is structured into several key components:
+*   `src/environment`: Contains the core simulation logic, including entities, the simulator engine, and policies.
+*   `src/agent`: Contains the implementation of the RL agent that learns the optimal policy.
+*   `src/initializer`: Responsible for reading data (like event logs) and setting up the simulation environment.
+*   `main.py`: The main entry point to run a simulation experiment.
+
+### Time Semantics (Important)
+
+*   **Internal simulation time**: Represented as a numeric scalar (`env.now`), with configurable units (seconds, minutes, hours). All policies operate in internal time.
+*   **Absolute time**: Only used for calendar inference, arrival inference, and exporting results back to real timestamps, anchored via a single `start_timestamp`.
+    *   SimPy time MUST NOT depend on Python `datetime`.
+    *   Calendars translate absolute time → internal availability.
+    *   Processing and waiting times are durations, not datetimes.
+
+### Policies (Core Extension Points)
+
+All behavior is expressed via **policies**. Policies must be stateless or internally self-contained, replaceable without modifying the engine, and deterministic given a random seed (when applicable). Key policies include: `RoutingPolicy`, `ProcessingTimePolicy`, `WaitingTimePolicy` (planned), `ArrivalPolicy`, `CalendarPolicy`, `ResourceAllocationPolicy` (planned), and `Stopping/Termination Policy`.
+
+## How it Works
+
+1.  **Initialization:** The `Initializer` reads an event log and a process model to configure the simulation parameters.
+2.  **Simulation Loop:** The `simulator/core/engine.py` runs the simulation by processing events from an event queue.
+3.  **Decision Points:** When a decision is needed, the simulator calls the corresponding policy.
+4.  **Agent Interaction:** If an RL-based policy is used, the simulator passes the current state to the `agent`. The agent selects an action.
+5.  **State Transition:** The simulator executes the action, and the simulation state changes.
+6.  **Feedback:** The simulator calculates a reward based on the outcome and new state, sent back to the agent for learning.
+7.  **Learning:** The agent uses this feedback to update its internal model to make better decisions.
+
+This cycle of `state -> action -> reward -> new state` continues, allowing the agent to learn an optimal policy for resource management within the simulated environment.
+
+## Design Principles (Non-negotiable)
+
+-   Separation of concerns
+-   No hard-coded behavior
+-   Policies over conditionals
+-   Internal time is numeric and consistent
+-   Logs ≠ process semantics
+-   Defaults must be safe for beginners
+-   Advanced users can override everything
+
+## Repository Structure
 
 ```text
-├── agent/
-│   ├── model.py           # Neural network architecture (Representation, Dynamics, Prediction heads)
-│   ├── mcts.py            # Monte Carlo Tree Search implementation
-│   └── action_pred.py     # Specific logic for the Action Prediction module
-├── envs/                  # Environment wrappers (Gym, Atari, etc.)
-├── training/
-│   ├── buffer.py          # Replay buffer for storing trajectories
-│   └── trainer.py         # Main training loop and loss calculation
-├── config.py              # Hyperparameters for search and training
-├── train.py               # Entry point for training the agent
-├── evaluate.py            # Entry point for testing the agent
-└── README.md
+opra/
+├── .git/
+├── .gitignore
+├── .vscode/
+├── GEMINI.md
+├── LICENSE
+├── README.md
+├── requirements.txt
+├── data/
+│   ├── logs/
+│   └── simulated_logs/
+├── docs/
+│   ├── architecture.dsl
+│   ├── environment.md
+│   └── Thesis_Proposal.pdf
+└── src/
+    ├── agent/
+    │   ├── agent.py
+    │   └── __pycache__/
+    ├── environment/
+    │   ├── simulator/
+    │   │   ├── adapters/
+    │   │   ├── core/
+    │   │   ├── models/
+    │   │   └── policies/
+    │   ├── entities/
+    │   │   ├── Activity.py
+    │   │   ├── Case.py
+    │   │   ├── Events.py
+    │   │   └── Resource.py
+    │   ├── environment.py
+    │   └── __pycache__/
+    ├── initializer/
+    │   ├── implementations/
+    │   │   └── DESInitializer.py
+    │   ├── Initializer.py
+    │   └── __pycache__/
+    ├── evaluate.py
+    ├── main.py
+    └── simulate.py
 ```
 
----
-
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 *   Python 3.8+
-*   PyTorch (CUDA recommended for training)
 
 ### Installation
-
 1.  **Clone the repository:**
     ```bash
     git clone https://github.com/your-username/opra.git
     cd opra
     ```
-
 2.  **Install dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
 
----
+### Running Simulations
 
-## 💻 Usage
-
-### Training the Agent
-To train the agent from scratch. This will initialize the World Model and begin the MCTS collection loop.
-
+#### 1. Basic Discrete-Event Simulation
+To run a basic DES and generate a simulated event log:
 ```bash
-python train.py --env CartPole-v1 --steps 100000 --predict-actions True
+python src/simulate.py
 ```
+This will output a simulated event log to `data/simulated_logs/PurchasingExample/PurchasingExample.csv`.
 
-**Key Flags:**
-*   `--env`: The Gym environment ID.
-*   `--predict-actions`: Enables the auxiliary action prediction head.
-*   `--search-depth`: Depth of the MCTS simulation.
-
-### Evaluating Performance
-To visualize the agent's performance and see the action predictions in real-time:
-
+#### 2. Reinforcement Learning Experiment
+To run a simulation with an RL agent (PPO example):
 ```bash
-python evaluate.py --load-path ./checkpoints/best_model.pt --render
+python src/main.py
 ```
-
----
-
-## 📊 Monitoring & Results
-
-The training script logs metrics to TensorBoard. You can track:
-1.  **Total Reward**: The standard RL metric.
-2.  **Prediction Accuracy**: How accurately the agent predicts the actions (the specific contribution of this fork).
-3.  **Search Statistics**: Average depth and value estimates.
-
-To view logs:
-```bash
-tensorboard --logdir runs/
-```
+This will run a simulation where an RL agent learns resource allocation policies and outputs a simulated event log to `data/simulated_logs/PurchasingExample/PurchasingExample_RL.csv`.
