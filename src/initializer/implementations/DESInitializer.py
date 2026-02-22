@@ -2,9 +2,9 @@ import pandas as pd
 
 
 from environment.simulator.core.log_names import LogColumnNames
-from environment.simulator.models.distributions.SkillBasedResourcePolicy import SkillBasedResourcePolicy
-from environment.simulator.models.distributions.EmpiricalArrivalPolicy import EmpiricalArrivalPolicy
-from environment.simulator.models.distributions.WeeklyCalendarPolicy import WeeklyCalendarPolicy
+from environment.simulator.models.empirical.SkillBasedResourcePolicy import SkillBasedResourcePolicy
+from environment.simulator.models.empirical.EmpiricalArrivalPolicy import EmpiricalArrivalPolicy
+from environment.simulator.models.empirical.WeeklyCalendarPolicy import WeeklyCalendarPolicy
 from environment.simulator.policies import ArrivalPolicy, CalendarPolicy, ProcessingTimePolicy, RoutingPolicy
 from environment.simulator.policies.WaitingTImePolicy import WaitingTimePolicy
 from initializer.Initializer import Initializer
@@ -16,8 +16,8 @@ from collections import defaultdict, Counter
 
 import numpy as np
 
-from environment.simulator.models.distributions.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
-from environment.simulator.models.distributions.EmpiricalProcessingTimePolicy import EmpiricalProcessingTimePolicy
+from environment.simulator.models.empirical.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
+from environment.simulator.models.empirical.EmpiricalProcessingTimePolicy import EmpiricalProcessingTimePolicy
 
 
 class DESInitializer(Initializer):

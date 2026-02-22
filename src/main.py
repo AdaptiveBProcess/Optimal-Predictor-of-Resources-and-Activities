@@ -3,7 +3,7 @@ import numpy as np
 import random
 
 from environment.simulator.adapters.event_log_to_csv import export_event_log_to_csv
-from initializer.implementations.DESInitializer import DESInitializer
+from initializer.implementations.ParametricInitializer import ParametricInitializer
 from environment.simulator.core.setup import SimulationSetup
 from environment.environment import BusinessProcessEnvironment
 from environment.simulator.core.log_names import LogColumnNames
@@ -35,7 +35,7 @@ def run_rl_experiment():
         end_timestamp="end_timestamp",
     )
 
-    initializer = DESInitializer()
+    initializer = ParametricInitializer()
     start_timestamp = log[log_names.start_timestamp].min()
     time_unit = "seconds"
 
@@ -70,7 +70,7 @@ def run_rl_experiment():
         num_resources=simulator.num_resources,
         lr=1e-3, # Higher LR for quick experimentation
     )
-
+    steps = 0
     while not (terminated or truncated):
         # a) Get current case needing decision
         case_needing_decision = simulator.get_case_needing_decision()
@@ -106,8 +106,8 @@ def run_rl_experiment():
         
         chosen_act_name = simulator.all_activities[act_idx]
         chosen_res_id = simulator.all_resources[res_idx].id
-        
-        print(f"Step: Case={case_needing_decision.case_id}, Activity={chosen_act_name}, Resource={chosen_res_id}, Reward={reward:.2f}, Total Reward={total_reward:.2f}")
+        steps += 1
+        print(f"Step {steps}: Case={case_needing_decision.case_id}, Activity={chosen_act_name}, Resource={chosen_res_id}, Reward={reward:.2f}, Total Reward={total_reward:.2f}")
 
     print(f"Simulation finished. Total Reward: {total_reward}")
 

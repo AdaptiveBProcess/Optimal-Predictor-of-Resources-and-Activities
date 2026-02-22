@@ -37,7 +37,12 @@ class SimulatorEngine:
         
         self.env.process(self.case_generator(max_cases))
 
-    def simulate(self, until: float = None, max_cases: int = None):
+    def _convert_event_log_to_absolute_time(self):
+        for event in self.event_log:
+            event["start"] = (self.start_timestamp + pd.to_timedelta(event["start"], unit='seconds')).isoformat()
+            event["end"] = (self.start_timestamp + pd.to_timedelta(event["end"], unit='seconds')).isoformat()
+
+    def simulate(self, until: float = None, max_cases: int = None, convert_to_absolute_time: bool = False):
         """Standard SimPy simulation (Fast)"""
         self.is_rl_mode = False 
         self.reset(max_cases=max_cases)
@@ -45,9 +50,13 @@ class SimulatorEngine:
             self.env.run(until=until)
         else:
             self.env.run(until=self.all_done)
+        
+        if convert_to_absolute_time:
+            self._convert_event_log_to_absolute_time()
+        
         return self.event_log
 
-    def run_until_decision(self):
+    def run_until_decision(self, convert_to_absolute_time: bool = False):
         """RL Simulation (Optimized Fast-Forward)"""
         self.is_rl_mode = True 
         
@@ -58,6 +67,10 @@ class SimulatorEngine:
 
         completed = self.completed_cases
         self.completed_cases = []
+        
+        if convert_to_absolute_time:
+            self._convert_event_log_to_absolute_time()
+
         return completed
 
     def get_case_needing_decision(self):
