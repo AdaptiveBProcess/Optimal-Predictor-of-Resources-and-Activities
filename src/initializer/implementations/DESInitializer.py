@@ -17,6 +17,7 @@ from collections import defaultdict, Counter
 import numpy as np
 
 from environment.simulator.models.empirical.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
+from environment.simulator.models.empirical.SecondOrderRoutingPolicy import SecondOrderRoutingPolicy
 from environment.simulator.models.empirical.EmpiricalProcessingTimePolicy import EmpiricalProcessingTimePolicy
 
 
@@ -25,7 +26,7 @@ class DESInitializer(Initializer):
     def build(self, log, log_names: LogColumnNames, start_timestamp: str, time_unit: str) -> SimulationSetup:
         self.log_names = log_names
 
-        routing = self._build_routing_policy(log)
+        routing = self._build_second_order_routing_policy(log)
         processing_times = self._build_processing_time_policy(log, time_unit)
         waiting_times = self._build_waiting_time_policy(log, time_unit)
         calendar = self._build_calendar_policy(log, start_timestamp)
@@ -72,6 +73,38 @@ class DESInitializer(Initializer):
                 }
 
         return ProbabilisticRoutingPolicy(transition_probs)
+
+    def _build_second_order_routing_policy(self, log) -> RoutingPolicy:
+        """
+        Builds a second-order Markov routing policy:
+        P(next_activity | previous_activity, current_activity).
+
+        Falls back to the first-order policy for unseen (previous, current) bigrams.
+        """
+        counts = defaultdict(Counter)
+
+        for _, group in log.groupby(self.log_names.case_id):
+            history = [None]  # sentinel for start-of-case
+            for _, event in group.iterrows():
+                act = event[self.log_names.activity]
+                history.append(act)
+
+            # Add terminal transition
+            history.append(None)
+
+            for i in range(1, len(history) - 1):
+                previous = history[i - 1]
+                current = history[i]
+                next_act = history[i + 1]
+                counts[(previous, current)][next_act] += 1
+
+        transition_probs = {}
+        for bigram, counter in counts.items():
+            total = sum(counter.values())
+            transition_probs[bigram] = {nxt: cnt / total for nxt, cnt in counter.items()}
+
+        fallback = self._build_routing_policy(log)
+        return SecondOrderRoutingPolicy(transition_probs, fallback)
 
     def _build_processing_time_policy(self, log, time_unit: str) -> ProcessingTimePolicy:
         durations_by_activity = defaultdict(list)

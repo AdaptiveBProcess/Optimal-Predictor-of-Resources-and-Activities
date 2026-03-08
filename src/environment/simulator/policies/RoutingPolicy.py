@@ -18,12 +18,13 @@ class RoutingPolicy(ABC):
     """
 
     @abstractmethod
-    def  get_next_activity(self, case: "Case", current_activity: "Activity" = None) -> "Activity":
+    def get_next_activity(self, case: "Case") -> "Activity":
         """
         Determines the next activity for a given case.
 
-        :param case: The case for which to determine the next activity.
-        :param current_activity: The activity that was just completed. Can be None if it's the start of the process.
+        :param case: The case for which to determine the next activity. Policies
+                     should extract whatever context they need from the case
+                     (e.g. case.activity_history for the current or previous activities).
         :return: The next Activity object, or None if the process has completed.
         """
         pass

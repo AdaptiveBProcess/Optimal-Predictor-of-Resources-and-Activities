@@ -25,14 +25,14 @@ def run_rl_experiment():
     np.random.seed(42)
 
     # 1. Load data and initialize setup
-    log = pd.read_csv("data/logs/PurchasingExample/PurchasingExample.csv")
+    log = pd.read_csv("data/logs/LoanApp/LoanApp.csv")
 
     log_names = LogColumnNames(
-        case_id="caseid",
-        activity="Activity_1",
-        resource="Resource_1",
-        start_timestamp="start_timestamp",
-        end_timestamp="end_timestamp",
+        case_id="case_id",
+        activity="activity",
+        resource="resource",
+        start_timestamp="start_time",
+        end_timestamp="end_time",
     )
 
     initializer = ParametricInitializer()
@@ -118,7 +118,7 @@ def run_rl_experiment():
 
     # 7. Export results
     event_log = simulator.event_log
-    export_event_log_to_csv(event_log, "data/simulated_logs/PurchasingExample/PurchasingExample_RL.csv")
+    export_event_log_to_csv(event_log, "data/simulated_logs/LoanApp/LoanApp_RL.csv")
     print(f"Event log exported. Total events: {len(event_log)}")
 
 if __name__ == "__main__":

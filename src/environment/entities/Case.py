@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -8,3 +8,4 @@ class Case:
     start_time: float = 0.0
     end_time: float = 0.0
     cycle_time: float = 0.0
+    activity_history: list = field(default_factory=list)

@@ -1,0 +1,736 @@
+\documentclass[journal]{IEEEtran}
+
+% correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor re-inforce-ment simu-la-tion auto-ma-tion tech-niques}
+
+\usepackage{hyperref}
+
+% put in your preamble
+\usepackage{tabularx}
+\usepackage{adjustbox}
+\usepackage{amsmath}
+\usepackage{caption}
+\captionsetup[table]{skip=4pt} % tighten caption spacing
+\usepackage[numbers]{natbib}
+
+\begin{document}
+
+\title{Optimizing Decision-Making in Business Process Simulation with Deep Reinforcement Learning}
+
+\author{
+  \IEEEauthorblockN{David Sequera}
+  \IEEEauthorblockA{
+    d.sequera@uniandes.edu.co\\
+    Universidad de los Andes, CSW
+  }
+\thanks{This project is submitted in fulfillment of the requirements for the Master's degree in Engineering at Universidad de los Andes.}%
+\thanks{Advisor: Oscar Fernando González Rojas, Universidad de los Andes.}%
+}
+
+\markboth{Optimizing Decision-Making in Business Process Simulation with Deep Reinforcement Learning
+}%
+{Sequera \MakeLowercase{\textit{et al.}}: Thesis Proposal}
+
+\maketitle
+
+\begin{abstract}
+This article proposes a methodology for optimizing business processes using deep reinforcement learning (DRL) that bridges resource allocation and prescriptive process monitoring through a unified decision framework. Unlike existing approaches that restrict the agent to resource assignment given a fixed control-flow, the proposed method expands the action space by allowing the agent to jointly select for a given case the next activity and its executing resource at each decision point, enabling it to explore process global configurations that fixed control-flow policies cannot reach. The article formalizes this problem as a Markov Decision Process over a stochastic simulation environment learned from event logs, and defines an architecture in which a DRL agent learns a policy that maximizes compliance with service-level agreements (SLAs), defined as cycle time thresholds. To preserve realistic process behavior despite the enlarged action space, the agent operates under a masked policy guided by learned branching probabilities. The approach is validated on four real-life event logs against heuristic and learning-based baselines, and evaluated using both SLA compliance metrics and a multi-perspective similarity framework covering control-flow, temporal, resource, and congestion dimensions. The goal is to obtain a flexible yet realistic decision policy capable of supporting real-time process optimization.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Deep Reinforcement Learning, Business Process Simulation, Policy Optimization, Markov Decision Process, Service-Level Compliance, Resource Allocation.
+\end{IEEEkeywords}
+
+\IEEEpeerreviewmaketitle
+
+\section{Introduction} 
+\label{sec:introduction} 
+
+The efficient execution of business processes is a key factor in achieving operational excellence across industries. Traditional optimization techniques often rely on historical data or simulated data from a manually created or discovered business model. This project proposes a dynamic, intelligent agent that learns optimal decision-making strategies by interacting with simulated business environments. 
+
+The central idea is to model business processes as Markov Decision Processes (MDPs), making them suitable for Reinforcement Learning (RL). By doing so, the agent can learn policies that optimize operational performance metrics such as cost, revenue, and time across different process traces, offering real-time guidance and long-term planning capabilities.
+
+Given an event log of a stochastic business process, we seek to learn a decision policy that, at each decision point of an ongoing process, selects the next activity and its executing resource to minimize expected cycle time. The policy must be learned from a simulation environment that faithfully reproduces the control-flow and timing behavior of the real process.
+
+\section{Theoretical Framework}
+\label{sec:theoretical_framework} 
+
+\subsection{Business Process Simulation (BPS)}
+\label{sub_sec:bps} 
+Business Process Simulation is a practical way to ``execute'' a model of a business process before changing the real one. Where classical process analysis looks for closed-form results, simulation creates an \emph{executable digital twin} that mimics arrivals, work steps, queues, and resource constraints to estimate cycle time, throughput, costs, and service-level compliance under uncertainty. In contrast to purely analytical queuing models, BPS embraces real-world complexities such as time-varying demand, calendars, priorities, rework, and human behavior—making it useful for what-if analysis and risk-aware decision-making \cite{law_kelton_2015,banks_2010,laguna_marklund_2019, declarative}.
+
+A process simulation model is represented as a flow, generally using BPMN. It is composed of activities (tasks), resources (agents, machines, teams), and gateways (transitions). This flow is a directed graph of activities (nodes) and gateways (edges), such as XOR/AND, that defines the probability of transition from one activity to another. A particular path is generally called a trace, and a certain execution of an activity is called an event (with associated activity, resource, start time, and end time). In order to simulate a real process, this model uses information such as calendars for resources or roles that define the set of activities a resource can execute, arrival time processes (e.g., Poisson or empirical time series), service-time distributions (lognormal, gamma, or fitted empirical), routing probabilities, priorities, SLAs, and resource capacities. Depending on the process, these components are used to accurately represent the process; the particular approximation of this article is detailed in Section~\ref{sec:approach}.
+
+One of the most important ways is to model BPS is \emph{discrete-event simulation} (DES) \cite{law_kelton_2015,banks_2010,laguna_marklund_2019}, which reduces the simulation problem to the basic unit of a business process—an event—so that the state of the process can be described as a set of events being executed at a certain moment in time. When simulating a specific process, there are two approaches to discovering its underlying behaviors: \emph{Data-Driven Process Simulation} (DDPS) and \emph{Deep Learning} (DL). DDPS defines the components of the process (such as the flow previously presented) and then discovers the values of these components from an event log, including the set of activities, resources, and branching probabilities. DDPS approaches make assumptions and generalizations about the problem, which help to model it but may leave important patterns behind. DL, on the other hand, learns patterns from the log that can be difficult to identify; these patterns allow more accurate representations at the cost of less interpretable models. The current approach attempts to leverage the strengths of both approximations. This approach is called Hybrid Process Simulation (HPS), where the main framework of DDPS is used and some components are replaced with DL models, \cite{review_bps} examines multiple simulation approaches and provides an overview of these HPS that uses both DDPS and DL. A common use of DL is for time prediction and DDPS for the flow, as stated in \cite{camargo2023hybrid, Runtime_integration_of_simulation_for_business_processes}.
+
+\subsection{Reinforcement Learning (RL)}
+
+Reinforcement Learning is one of the most important paradigms in Machine Learning (ML) due to its intrinsic environmental learning. ML can be divided into three main paradigms: supervised learning, unsupervised learning, and reinforcement learning (other approaches such as self-supervised learning exist, but these tend to fall under one of these three paradigms). Supervised learning requires a dataset with the type of input and the correct answer, whether for a classification or regression task. Unsupervised learning does not require a correct answer; in fact, there is no definition of a specific correct answer. The model learns underlying patterns of the data; these tasks are generally dimensional reduction or clustering. Reinforcement learning does not have a dataset; it relies on an environment that gives the model a signal indicating whether the action the model selected was good or not.
+
+From the perspective of algorithms, traditional algorithmic design implied an understanding of the problem, the shape of the solution, and finally the logical steps to get from a given configuration of the problem to a solution. ML introduced a mathematical model that not only replaces the logical steps but can also be optimized from the understanding of the problem and the solution. RL addresses problems where there is only an understanding of the problem, and the solution is not as clear as in supervised ML problems; it only has a reward signal from an action taken. This introduces concepts such as the environment (the problem), a space of actions, and a space of states where an agent (the algorithm that makes decisions) can explore and exploit based on a learned policy. This is suitable for problems where there are a series of stochastic steps to reach a desired state (the solution). This is where the concept of Markov Decision Process (MDP) serves to model the problem. In practice, for each episode—or a defined period—the agent learns from a reward function that defines the desired behavior.
+
+Alongside other major breakthroughs, the emergence of deep neural networks marked a turning point for the field. Earlier, training deep models was hindered by vanishing gradients and overfitting, limiting the practical depth and scale of neural architectures. Today, the availability of large datasets and the development of advanced models such as CNNs, RNNs, LSTMs, Transformers, GANs, and autoencoders have made deep networks far more trainable. This progress has significantly benefited reinforcement learning as well, enabling algorithms like Deep Q-Networks (DQNs) and driving rapid advances in the field now referred to as DRL.
+
+As described in \cite{Optimizing_Resource_Allocation_Policies}, DRL algorithms can be classified into these categories: Value-Based, Policy-Based, and Actor-Critic-Based. For the purpose of this section, we center our attention on two main algorithms: Q-learning and Policy Gradient (REINFORCE). From these algorithms, we build a foundation from which we can introduce state-of-the-art algorithms such as Actor-Critic approaches, notably PPO, A2C, and A3C.  
+
+Value-Based algorithms search for an optimal value (expected value) for a given state or state-action. One example is the Q-learning algorithm, where the expected value is either a state-value $V(s)$ or a state-action-value $Q(s,a)$ \cite{sutton_2018_rl_intro}. Q-learning, in its most common formulation, provides a policy that for a discrete space of actions and states determines a $Q(s,a)$ that indicates which action is best for a given state. This is achieved by updating the value based on rewards using the Bellman equation, which states that the value of a state equals the expected return of its successor states, and establishes a relationship between the states and their neighbors. The Bellman equation shares similarities with a moving average and helps to propagate the value of a reward through the trace of states involved in that outcome. 
+
+The Policy-Based approach REINFORCE is an algorithm whose policy $\pi(a|s)$ is parameterized directly. This means that the model does not know how good the other states or state-actions are, but knows the probable optimal action for a given state. It learns from trajectories of states, actions, and returns, and updates the policy parameters to increase the likelihood of actions that led to higher returns based on the final result. To achieve this update of the policy, it models the problem as a supervised learning task where all actions of a given trace are classified as positive or negative interactions.
+
+Actor-Critic takes the best of both worlds by training an actor (policy-based) and a critic (value-based), where the critic only learns from the action-state taken by the actor, and the actor learns from the advantage—a concept that indicates whether the decision made by the actor is better than the expected value predicted by the critic. It is defined as the difference between the expected value and the actual reward, showing faster convergence and important improvements \cite{lapan_2024_drll_handson}.
+
+Both approaches—Value-Based and Policy-Based—are viable for optimizing a business process. However, because Actor–Critic architectures can handle high-dimensional, continuous state spaces efficiently and underpin many modern DRL algorithms, we adopt an Actor–Critic design for our agent.
+
+\section{State of the Art}
+\label{sec:state_of_the_art} 
+
+\subsection{Business Process Simulation Environments}
+
+When designing an RL agent, the environment plays an essential role. If the environment does not represent reality accurately, the agent will not identify the patterns that are intrinsic to the problem you want to solve. For this reason, it is essential to ensure the environment accurately captures the reality of the process.
+
+The environment is essentially the simulator; however, there is a subtle difference between their responsibilities. The function of a simulator is to simulate the execution of the process. Conversely, the environment is responsible for providing the agent with the next state and reward based on the action the agent took. In that sense, the environment serves as a wrapper around the simulator to provide other capabilities, such as the correct representation of the state and the calculation of the reward function.
+
+To introduce the process simulator—the most important part of the environment—we can describe a business process with a process model. A process model is a flow of activities with a certain number of routes or possible paths, called traces. A trace can also be seen as a configuration (permutation) of a process. As described in Section~\ref{sub_sec:bps}, this flow is represented by a directed graph with nodes (events) and edges (transitions).
+
+Every event has an activity, start time, end time, and resources. After an event is executed, the next step is selected from the possible transitions. The set of transitions to possible next events from a given event is modeled as a probability distribution where each transition has an associated probability, also known as the branching probability. This probability is calculated as a conditional probability of the next state given the current state, computed from the frequencies observed in the event log. This is a simplified approximation that cannot capture the full range of factors that influenced the next activity. As a matter of fact, process simulators have addressed this problem with the use of DL.
+
+For the purpose of this article, we are especially interested in the branching probabilities and also in waiting and processing times. The simple approximation of the probability distribution does not take into account factors of the trace that could lead to another possible distribution, such as past activities and resources used. To address this issue, alternatives such as \cite{Runtime_integration_of_simulation_for_business_processes} use Decision Trees to capture this intrinsic information for next-activity prediction. In this case, the authors use both simple probability distributions and Decision Trees to predict the next activity.
+
+In terms of time prediction for tasks, Long Short-Term Memory Recurrent Neural Networks (LSTMs) are also used. Implementations such as \cite{camargo2023hybrid} generate a trace and then predict the processing and waiting time of each task. On the other hand, implementations such as \cite{Runtime_integration_of_simulation_for_business_processes} consider the prediction as a whole and predict both the next activity and the times of each activity at each step, to capture instances where time also influences the next activity.
+
+These environments are essential to the model because they reflect an accurate reality that the reinforcement learning model aims to capture.
+
+\subsection{Resource Allocation Optimization Approaches}
+
+Although there is a trend in the use of RL with BPS, it is mainly centered on resource allocation, not on the possible events (activity instances) that a certain trace could take in order to achieve better performance. These approaches vary in perspective of optimization. Most optimize activities directly, linking resources to an activity and waiting for the trace to have an event with that activity. Other approaches are for specific use cases, such as batching and domain-specific interventions. In this section, we present the most common approximations.
+
+Approaches such as \cite{Optimizing_Resource_Allocation_Policies} use hybrid simulators for the generation of traces. This trace is used in an environment where the entire state of the process is passed to the agent, which determines the best resource for a given activity. As further work, they proposed varying the simulations and attempting to optimize the traces instead of the activities. Other resource optimizations such as \cite{genetic_resource_allocations} seek to optimize simulated traces with genetic algorithms, using a sequence of activities where a resource is assigned and then simulated to obtain the cost of that configuration. 
+
+Another perspective \cite{Optimization_of_Activity_Batching_Policies} attempts to optimize the batches of activities, taking into account several factors such as waiting time, processing time, cost, and resource utilization. In a similar approximation, \cite{Resource_allocation_using_task_similarity} attempts to map the similarity of tasks with the premise that similar tasks optimize time because they share subtasks that could reduce the time when executed by the same resource. They then introduce an entropy measure that compares how well a certain worklist reduces this entropy, thereby reducing cycle time. This approach optimizes the entire process by searching for a minimum in the entropy with the use of reinforcement learning.
+
+\subsection{Prescriptive Process Monitoring}
+
+From the perspective of Prescriptive Process Monitoring (PrPM), articles tend to focus more on the analysis of the next activity. For example, \cite{ppm_resource_constraints} proposes a model that searches for the most optimal time to trigger an already-defined domain-specific intervention using reinforcement learning. This approach takes into account as an optimization goal the outcome of the process; it gives the example of whether a client takes a loan or not. Other perspectives such as \cite{ppm_optimal_policy_temporal_data} propose an interesting approach to learning the best possible path for an MDP constructed as a pair of activity and cluster. The clusters are created with a representation of the prefixes by activity frequencies and positions, then grouped by k-means. This approach uses policy iteration—an RL algorithm—to update the state-values of the MDP with a Monte Carlo simulation.
+
+\subsection{Additional Business Process Optimization Approaches}
+
+Apart from the general approaches for resource allocation and PrPM, \cite{The_Business_Process_Optimization_Competition} presents an overview of the techniques used to optimize a process. \citeauthor{The_Business_Process_Optimization_Competition} present a known medical process where the objective is to assist as many patients as possible with certain restrictions. This article evaluates multiple approaches such as simulated annealing, evolutionary algorithms, tabu search, and deep reinforcement learning. It concludes that these techniques achieved better results than the reference baselines, although reinforcement learning showed a particularly promising area of investigation.
+
+Apart from these specific resource allocation approaches, from another perspective using state-of-the-art techniques in NLP, \cite{PM_LLM_Benchmark} evaluates the performance of LLMs in Process Mining tasks, such as describing a process, extracting insights from a process,  other approaches like \cite{business_process_modeling_llms} also evaluates the generation of a process model from a natural language description. This is particularly interesting because it translates a series of modeling problems into the world of embedding representations, where we hypothesize that a vector could represent the state of a process. If so, we can manipulate that representation to summarize, obtain insightful information, or even predict the best event-resource pair for a certain case to optimize the entire process. This concept is not new for the field (resource allocation) in the sense that LSTMs already capture the state of a process by processing the sequence of executed activities up to a certain time. The innovation is the relationship between natural language models trained for a certainly different task and the effective capture of the state with LLMs.
+
+\subsection{Characterization Table Definitions}
+
+\begin{itemize}
+    \item \textbf{Techniques:} The algorithms used to optimize the resource allocation.
+    \item \textbf{Optimization Objective:} The metric or metrics that are being optimized.
+    \item \textbf{Optimization Scope:} This could optimize the trace itself or all the instances of the process that are being executed (it is most common to optimize the entire process).
+    \item \textbf{Testing:} The way the article compares and evaluates the performance with respect to the proposed optimization method.
+    \item \textbf{Action Space:} The attributes that the agent is capable of controlling; these could be resources or resources and activities.
+    \item \textbf{Type of Simulation:} Whether the article mentions the use of what-if scenarios in their implementation. What-if scenarios can be thought of as certain restrictions to the original flow of the process.
+    \item \textbf{Process Memory:} Takes into account information about the prefix of the case instance (token) that is being processed.
+    \item \textbf{Application Field:} Is the application field of the approximation wheter if it is for Prescriptive Process Monitoring or Resource Allocation.
+\end{itemize}
+    
+\begin{table*}[!htbp]
+\centering
+\small
+\setlength{\tabcolsep}{4pt} % tighten column separation
+\renewcommand{\arraystretch}{1.1}
+
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabularx}{\textwidth}{|>{\raggedright\arraybackslash}X
+                             |>{\raggedright\arraybackslash}p{1.6cm}  % Techniques
+                             |>{\raggedright\arraybackslash}p{1.0cm}  % Opt. Scope
+                             |>{\raggedright\arraybackslash}p{1.7cm}  % Opt. Metric
+                             |>{\raggedright\arraybackslash}p{1.4cm}  % Testing
+                             |>{\raggedright\arraybackslash}p{1.4cm}  % Action Space
+                             |>{\raggedright\arraybackslash}p{1.3cm}  % Simulation
+                             |>{\raggedright\arraybackslash}p{1.1cm}  % Memory
+                             |>{\raggedright\arraybackslash}p{1.6cm}  % Application field
+                             |>{\raggedright\arraybackslash}X|}
+
+
+\hline
+\textbf{Business Process Articles} &
+\textbf{Techniques} &
+\textbf{Opt. Scope} &
+\textbf{Opt. Metric} &
+\textbf{Testing} &
+\textbf{Action Space} &
+\textbf{Simulation} &
+\textbf{Memory} &
+\textbf{Application field} &
+\textbf{Purpose} \\ \hline
+
+\textbf{Optimizing Resource Allocation Policies in Real-World Business Processes Using Hybrid Process Simulation and Deep RL \cite{Optimizing_Resource_Allocation_Policies}} &
+DRL &
+Whole Process &
+Cycle Time &
+Heuristics &
+resources &
+What-if &
+With Memory &
+Resource Allocation &
+Optimize resource allocation via Activity–Resource pairs \\ \hline
+
+\textbf{Learning policies for resource allocation in business processes \cite{Learning_policies_drl}} &
+DRL, Bayesian Optimization &
+Whole Process &
+Cycle Time &
+Heuristics &
+resources, instance &
+AS IS &
+Without Memory &
+Resource Allocation &
+Optimize resource allocation via Activity–Resource pairs \\ \hline
+
+\textbf{Resource allocation using task similarity distance \cite{Resource_allocation_using_task_similarity}} &
+RL &
+Whole Process &
+Cycle Time &
+Heuristics \& Original Log &
+resources &
+AS IS &
+Without Memory &
+Resource Allocation &
+Reduce worklist entropy to improve cycle time \\ \hline
+
+\textbf{Discovering optimal resource allocations for What-if scenarios using data-driven simulation \cite{genetic_resource_allocations}} &
+Genetic Algorithms &
+Whole Process &
+Multiobjective (Cost, Flow Time, Waiting, Workload) &
+What-if Scenarios &
+resources, instance &
+What-if &
+Without Memory &
+Resource Allocation &
+Search optimal configurations using GA over simulated cases \\ \hline
+
+\textbf{Optimization of Activity Batching Policies in Business Processes \cite{Optimization_of_Activity_Batching_Policies}} &
+DRL &
+Whole Process &
+Cycle Time \& Cost &
+Heuristics &
+activity batch &
+AS IS &
+Without Memory &
+Resource Allocation &
+Optimize batching of common activities \\ \hline
+
+\textbf{Prescriptive Process Monitoring Under Resource Constraints: A Reinforcement Learning Approach \cite{ppm_resource_constraints}} &
+DRL &
+Whole Process &
+Outcome of the Case &
+DRL &
+binary decision over interventions &
+AS IS &
+Without Memory &
+Prescriptive Process Monitoring &
+Improve outcomes via selective intervention policies \\ \hline
+
+\textbf{Recommending the Optimal Policy by Learning to Act from Temporal Data \cite{ppm_optimal_policy_temporal_data}} &
+RL &
+Whole Process &
+Generic KPI &
+DRL &
+trace cluster, action &
+AS IS &
+Without Memory &
+Prescriptive Process Monitoring &
+Optimize KPI via MDP policy iteration \\ \hline
+
+\textbf{This Approach} &
+DRL &
+Whole Process &
+Cycle Time &
+Heuristics \& Original Log &
+resources, activities &
+AS IS \& What-if &
+Simulator Memory &
+Resource Allocation &
+Search an optimized trace for a chosen objective \\ \hline
+
+\end{tabularx}
+\end{adjustbox}
+
+\caption{Characterization Table}
+\label{tab:CharacterizationTable}
+\end{table*}
+
+
+\section{Motivation and Novelty}
+
+% TODO
+% Define flexibility (Resource Allocation) & (Intervention) & (Capacity Focus) & (Objective: Cycle time + Conformance) 
+% Agent takes into account resource capacity intracase (long term decision) 
+% 4th element Priorization and resource allocation 
+
+\label{sec:motivation_and_novelty} 
+
+The proposed work is novel in three ways:
+
+\begin{enumerate}
+    \item \textbf{Optimization of activity routing and resource allocation.} 
+    Prior DRL-based approaches largely optimize resource allocation given fixed control-flow, whereas we allow the agent to choose both the next event (activity instance) and its executing resource.
+
+    \item \textbf{Embedding-based state representation.} 
+    Instead of hand-crafted state vectors, we represent the process state using embeddings derived from structured JSON summaries and machine-learning predictions of next activities and processing times.
+
+\end{enumerate}
+
+Although RL has demonstrated remarkable success in domains such as robotics and games, to the best of our knowledge, its application in business process simulation is not fully explored. RL is mainly used for resource allocation \cite{Learning_policies_drl,Optimizing_Resource_Allocation_Policies,Resource_allocation_using_task_similarity, Optimization_of_Activity_Batching_Policies}, other approximations are tailored to a single use case \cite{The_Business_Process_Optimization_Competition} and in the field of PrPM approximations explore domain specific interventions \cite{ppm_resource_constraints} or optimize the best path within the constraints of the environment \cite{ppm_optimal_policy_temporal_data}. 
+
+The definition of a clear framework from which processes can be analyzed as MDPs is key for real-time analysis. It allows the generalization of what-if scenarios and the evaluation of an ongoing process based on previous behaviors. The main contributions of this article are the definition of a simulation environment from a business process log, and an architecture of an agent that optimizes both resources and events (activity instances). This introduces a new set of tools to analyze and optimize processes, supporting business decision-making with a mathematical model that predicts the best scenario without the need to make simulations but with the already ongoing process. This methodology represents intersection between the simulation and prescriptive process monitoring.
+
+
+\section{Research Questions}
+\label{sec:research_questions}
+
+The project seeks to address the following \textbf{Research Questions}:
+
+\begin{quote}
+\textit{\textbf{RQ1.} Can a deep reinforcement learning agent, operating on a stochastic business process simulation, learn a decision policy for activity routing and resource allocation that increases the proportion of cases completing within a predefined service-level agreement (SLA) threshold?}
+
+\textit{\textbf{RQ2.} How does the behavior induced by the learned DRL policy differ from realistic process executions across control-flow, temporal, congestion, and resource dimensions?}
+
+\textit{\textbf{RQ3.} What is the magnitude of the improvement achieved by the full DRL-based decision policy compared to purely heuristic and purely machine-learning--driven baselines, and how does performance degrade when the agent's scope of control is restricted?}
+\end{quote}
+
+
+\section{Research Challenges}
+\label{sec:research_challenges}
+
+Two main challenges are anticipated:
+
+\subsection{Environment Design}
+Simulating a realistic business process requires careful modeling of stochastic elements—delays, parallel tasks, probabilistic transitions, and other factors—so that it represents the original log of the process well enough. Therefore, the environment should be dynamic so that the agent can explore the largest number of possibilities, but realistic enough so that the policy learned by the agent is capable of describing reality with a certain level of precision. This environment could be traditionally simulated or could use generative AI to generate a diverse variety of simulation scenarios. 
+
+\subsection{Agent Interaction}
+Although in traditional RL environments the nature of the environment allows a clear distinction between the action of the agent and the results generated by the environment, for business process optimization, the distinction between action and result must be defined. Additionally, as in areas such as NLP where encoders can be trained on multiple tasks, an agent could learn from a list of defined tasks where the essence of the policy is shared between them.
+
+\section{Contributions and Impact}
+\label{sec:contributions_and_impact}
+
+This project is expected to deliver both methodological contributions and practical benefits for business process management:
+
+\begin{itemize}
+    \item Development of a functional prototype of a reinforcement learning agent capable of learning optimal business process policies.
+    \item A framework for modeling BPMN simulations as Markov Decision Processes (MDPs).
+    \item Empirical validation through case studies or synthetic process models.
+\end{itemize}
+
+With these practical contributions:
+
+\begin{itemize}
+    \item Real-time decision support, enabling managers to predict the best next actions in ongoing processes.
+    \item Automation of resource allocation decisions and activity sequencing.
+    \item Improved understanding of the long-term impact of operational changes, supporting both tactical and strategic process optimization.
+\end{itemize}
+
+The agent’s recommendations could serve as an advisory system for decision-makers or be directly integrated into business process automation tools.
+
+\section{Approach}
+\label{sec:approach}
+
+This project is mainly characterized by the use of an agent in a simulated environment that can search for an optimal policy of a action space of activities and resources. It is divided into two stages the transformation or generation of the environment from an event log and the training of the agent which is defined by an objective function composed by operational metrics (in this case the cycle time). This section is structured in two parts first the general flow of data from an event log to a optimal simulated generation from this process, and second a dive deep into the most important components of the pipeline.
+
+\subsection{Definitions}
+
+Let a business process be represented using the following formal components:
+
+\begin{itemize}
+
+    \item \textbf{Event Log} (\(L\)):  
+    An event log is a finite set of traces:
+    \[
+        L = \{ \sigma_1, \sigma_2, \dots, \sigma_n \}.
+    \]
+
+    \item \textbf{Activity} (\(A\)):  
+    An activity is an element of the finite set of possible operations in the process:
+    \[
+        A = \{ a_1, a_2, \dots, a_m \}.
+    \]
+
+    \item \textbf{Event} (\(e\)):  
+    An event is an activity instance represented as the tuple
+    \[
+        e = (c, a, t_s, t_e, r),
+    \]
+    where \(c \in C\) is the case identifier, \(a \in A\) is the executed activity,  
+    \(t_s, t_e \in T\) are the start and end timestamps (\(t_s \le t_e\)), and  
+    \(r \in R\) is the resource executing the event.  
+    The set of all events is denoted
+    \[
+        E = \{ e_1, e_2, \dots, e_k \}.
+    \]
+
+    \item \textbf{Trace} (\(\sigma\)):  
+    A trace is a temporally ordered sequence of events belonging to the same case:
+    \[
+        \sigma = \langle e_1, e_2, \dots, e_\ell \rangle,
+    \]
+    where all events in the sequence share the same case identifier \(c\).
+
+    \item \textbf{Case} (\(c \in C\)):  
+    A case is an instance of a process execution, associated with a trace \(\sigma\) and a collection of performance metrics:
+    \[
+        c = (\sigma, \text{metrics}),
+    \]
+    where metrics may include processing times, waiting times, resource usage, and cycle time.
+
+    \item \textbf{Resource} (\(r \in R\)):  
+    A resource is an entity with the capability to execute a subset of activities:
+    \[
+        r : A_r \subseteq A,
+    \]
+    where \(A_r\) is the set of activities that resource \(r\) can perform.
+
+\end{itemize}
+
+Other terms that are broadly used in the field are prefix and suffix that refers to a trace until or from a certain point respectively, it is also important that to clarify that the term Trace and the term Case are usually interchangeable and depends specially on the part that the author wants to focus either on the actual permutation of activities or in the metrics related to that specific instance like time. 
+
+From the perspective of reinforcement learning these definitions clarify concepts that are essential to create this architecture. 
+
+\begin{itemize}
+    \item Environment: is in charge of the evaluation of the actions that an agent takes with a given state and define the next state, and reward based on the action. it is generally defined as Markov Decision Process (MDP) in the field of RL
+    \item Agent: is the actor that for a given state takes a certain action based on a policy that defines the best possible action that optimize a certain objective function.
+\end{itemize}
+
+\subsection{Data Preparation}
+
+As a part of the pipeline the model needs to discover a process simulation model, this model in broader terms is composed of three parts. First the process flow, that could be seen as a set of possible traces or paths discovered from the log of events. Second a pool of available resources and a calendar of available time intervals for each resource or role (depending on the implementation). Finally it is composed by a branching probability that is generally modeled as the conditional probability of a the next activity given the actual activity. Although in this case, we will be using machine learning alternatives that take into account the information from the prefix of the trace, as explained in \cite{Runtime_integration_of_simulation_for_business_processes}, where the authors proposed a decision mining variation of their model using decision trees, with the expectation of capturing underling patters that the simple probability cannot.
+
+The flow is converted in a Petri Net which could be though as a directed graph that defines a model where tokens (cases) can move from one node to another until the trace is completed. This models allows us to synthesize the process structure. after this step a ML model is trained with the task of predicting a branching probability, for a given ongoing case what is the most probable next activity, finally we allocate resources based on disposability, although in this part the agent will be responsible of selecting from the pool of activities the most optimal resource for that specific instance. 
+
+\subsection{Environment}
+
+Once the process simulation model is created we wrapped the simulator so that we can define a formal environment, this environment has three key functions, the first one is to receive and interpret the actions that comes from the agent, the second one is to evaluate the performance of this actions, in this particular case cycle time and the third one is to generate the next state for the agent to predict the best action to take. We will be using the simulator described in \cite{Runtime_integration_of_simulation_for_business_processes} also used in \cite{Optimizing_Resource_Allocation_Policies} with a some modification, specifically in the activity decision part. We replace the environment’s internal sampling of next activities with decisions proposed by the DRL agent, while still using the ML-based time predictions of \cite{Runtime_integration_of_simulation_for_business_processes}. Additionally we don't care about white box interpretation and we expect neural networks to predict better this AS-IS probability so instead of decision trees as proposed in \cite{Runtime_integration_of_simulation_for_business_processes} we are going to use LSTMs.
+
+We selected this model due to the improvement in the prediction of times and also for the inclusion of a more robust model to  represent the distribution of possible next activities in a certain moment of the trace. Once the simulator estimates the cost in time of the action that the agent took, the environment then calculates a reward function that uses the previously calculated values and then provides the agent with the respective reward indicating the agent if the action that was taken resulted in an improvement or not.
+
+\subsection{State}
+
+The state is described in this part is quite different that usual approaches like \cite{ppm_optimal_policy_temporal_data, Learning_policies_drl, Optimizing_Resource_Allocation_Policies} . It uses NLP techniques to generate the state of the actor, as demonstrated in \cite{Text_Conditional_Image_Generation_with_CLIP} NLP embedding representations goes beyond the field of natural language processing and transcends to complex fields like image generation. Also taking into account works like \cite{business_process_modeling_llms} LLMs are capable of understand business process. With this background into account we proposed a new pipeline for the generation of the state. State in the initial state will be extracted from the actual state of the simulation as an ongoing process (a set of cases) that will be modeled as a strictured format with calculated metrics, in this case a JSON file with the information of the number of cases, resources utilization, resources available, list of the last $n$ events of the whole process. Then this information is processed by a encoder that converts this sequence into a embedding representation of the state, this state is then passed to the agent allowing it to capture much more information than with another feature engineered approach. Additionally we will concatenate the probability distribution predicted by the environment in order to facilitate the decision and stability of the agent knowing which option is the most probable nonetheless probably not the optimal.
+
+We will use a transformer-based encoder trained jointly with the DRL agent on the structured JSON representation of the state. The encoder parameters are updated through the DRL loss, allowing the state representation to adapt to the decision task.
+
+% TODO: Add Explanation of resources calculations by the enviroment
+% Resources availability (capacity)
+% Utilization Rate (All traces Total_Assigned_Time/Available_Total_Weekly_Time)
+% Total_Assigned_Time = Assigned_Time + Excecuted
+% Available_Total_Weekly_Time
+
+\subsubsection{Resource Metrics Computation}
+
+Resource-related metrics are computed directly by the simulation environment using a reactive update mechanism. Rather than recalculating all metrics at each decision point, the environment subscribes to relevant simulation events, such as activity start, activity completion, and resource allocation or release. Whenever such an event occurs, the affected metrics are updated incrementally.
+
+Resource availability is defined as the remaining capacity of a resource at a given time, considering its total capacity and currently assigned activities. Resource utilization is computed as the ratio between the total time a resource has been assigned to activities and the total available working time within a predefined horizon (e.g., weekly capacity).
+
+Formally, utilization is calculated as:
+\[
+\text{Utilization} = \frac{\text{Total\_Assigned\_Time}}{\text{Available\_Total\_Weekly\_Time}}
+\]
+where \textit{Total\_Assigned\_Time} includes both executed activity time and currently assigned but not yet completed work.
+
+This reactive design ensures that metrics remain consistent with the evolving simulation state while minimizing computational overhead. Moreover, it allows additional metrics to be introduced on demand without altering the core simulation logic, as new subscribers can be attached to the event stream whenever the agent requires additional information.
+
+
+
+\subsection{Agent}
+
+The agent is a DRL agent, Actor-Critic which tries to estimate both, the stat-value and the best possible action for a given state, this is described as a probability distribution of a discrete set of activities, in this case we have 2 probability distributions, one for the set of possible activities and one for the set of possible resources, after the prediction there is a mask as in most DRL implementation where the unfeasible actions and resources for a given state are discarded. For the Critic part the agent takes the actual state and predicts the expected future reward, this is useful because it allows the agent to calculate how good is the decision that the actor took based on what is the expected value for that state. Similar to the Generative Adversarial Networks (GANs) this is a cooperative network where the better the Critic is the better the Actor becomes and vice-versa. 
+
+The agent goal is to converge in an optimal policy $\pi(\alpha|s_n)$ or also $\pi((a,r)|s_n)$ where $\alpha$ is a pair of $(a,r)$ activity and resource, for a given case. This policy predicts the best action $\alpha$ for a given state ideally for any given state, this is called generalization. This policy can from any given state predict the best possible suffix for a certain objective, this predictions could be greedy (deterministic) or stochastic with methods like top-k or top-p used widely in NLP.
+
+Finally the agent with this policy can analyze traces of ongoing process and predict the best possible suffix given the actual state. This could lead to an optimal suggestions not only for simulations but for logs until a certain point, showing the optimal What-if scenario, with or without variations.
+
+\subsection{Mask}
+Since the agent will try to take greedy actions, we will be using a top-p and top-k approximation not for sampling but for limiting the actions that the agent can take with the purpose of maintaining the desired patterns of the process. The action space will be limited or masked only for the available actions for a certain state, this actions will be described by the probability distribution given by the environment. We will define a certain top-k elements and/or top-p probability to get a certain flexibility especially for activities, in the case of resources it will use also a mask calculated with the use of the actual state.
+
+This approximation is a common practice in DRL as in implementations like \cite{Learning_policies_drl} where \citeauthor{Learning_policies_drl} use masks to prevent the agent from doing unfeasible actions.
+
+% Environment: Dist Prob ajusta a trazas más similares basado en el promedio de actividades por trazas 
+
+\subsection{Reward Function}
+
+The reward function will be calculated with respect to the cycle time, as the optimization goal is to reduce the cycle time similar reward function to the ones proposed in \cite{Learning_policies_drl, Optimizing_Resource_Allocation_Policies}. Although we would like the agent to specifically to reduce the cycle time to achieve a certain service level of agreement (SLA) because this behavior emulates better a business goal. The agent will have then the task to reduce the cycle time below a certain threshold. 
+
+We are going to have two reward one small that indicates directionally what is the goal and one that takes into account the threshold at the end of the simulation. The threshold $T$ for this case will be defined as the percentile 90 of the original log, calculated with the cycle time of each case.  
+
+\[
+r(\sigma)=\frac{K}{ct(\sigma)}
+\]
+
+\[
+R(\sigma)=
+\begin{cases}
++r(\sigma), & ct(\sigma) < T \\[6pt]
+-K, & ct(\sigma) \ge T
+\end{cases}
+\]
+
+The use of two rewards serves different but complementary purposes. The first reward provides direction: it helps the model quickly understand what kind of behavior is desirable, which stabilizes learning and speeds up convergence in the early stages.
+
+The second reward represents the true objective: ensuring that the process complies with the defined SLA. This reward is only available at the end of each case (or episode), because SLA compliance can only be evaluated once the entire process has finished. While this reward is delayed, it ultimately determines which behaviors are reinforced.
+
+This mechanism is closely related to ideas from dynamic programming. In dynamic programming, solutions are often computed by reasoning backward from the final objective and assigning values to earlier decisions based on their contribution to the final outcome. Reinforcement learning does not explicitly compute solutions backward, but it follows a similar principle: once a final reward is observed, the algorithm assigns credit to the sequence of actions that led to that outcome.
+
+In PPO, credit assignment is handled through value and advantage estimates that are computed using the full return of an episode. Because these estimates include rewards observed later in the process, updates made to the policy reflect the quality of earlier decisions with respect to the final outcome. As a result, rewards that are only observed at the end of an episode can still shape decisions made much earlier, without any explicit backward traversal of the process.
+
+In short, the intermediate reward accelerates learning by providing early guidance, while the final reward ensures alignment with the real goal. Together, they allow the model to learn efficiently without losing focus on SLA compliance.
+
+\section{Evaluation}
+\label{sec:evaluation}
+
+The goal of the evaluation is threefold: (i)~to assess whether the proposed DRL agent can increase SLA compliance compared to baseline decision policies, (ii)~to characterize the behavioral changes introduced by the DRL policy across multiple process perspectives, and (iii)~to quantify the incremental contribution of DRL-based decisions at different levels of agent involvement. The evaluation follows an experimental design grounded in the framework for measuring BPS model quality proposed by Chapela-Campa et~al.~\cite{framework_for_measuring_the_quality_of_business_process_simulation_models}, which advocates comparing simulated event logs against a ground-truth log across independent process perspectives.
+
+\subsection{Research Hypotheses}
+
+We formulate the following hypotheses:
+
+\begin{description}
+    \item H1 (SLA Compliance): The DRL agent increases the proportion of cases that complete within a predefined SLA threshold compared to baseline decision policies, across multiple processes and threshold levels.
+    \item H2 (Behavioral Realism): The event logs generated under the DRL policy remain within an interpretable distance of realistic process executions, as measured by control-flow, temporal, congestion, and resource similarity metrics, i.e., the DRL policy does not exploit the simulator in ways that destroy process realism.
+    \item H3 (Incremental Benefit): Progressively extending the agent's scope of control---from resource-only allocation to joint activity--resource decisions---yields monotonic improvements in SLA compliance relative to heuristic and ML-driven baselines.
+\end{description}
+
+\subsection{Evaluation Metrics}
+
+We evaluate the policies along two complementary dimensions: \emph{performance metrics}, which measure operational improvement, and \emph{similarity metrics}, which measure how closely the DRL-generated logs resemble realistic process behavior. This separation ensures that performance gains are assessed alongside their impact on process realism.
+
+\subsubsection{Performance Metrics}
+
+For each process and each decision policy, we run $K = 10$ independent simulations. Each simulation generates a log with the same number of cases and starting time as the original log. From these logs we compute the following metrics.
+
+\paragraph{SLA Compliance Rate.}
+Given an SLA threshold $T$, the compliance rate is the proportion of cases whose cycle time falls below~$T$:
+\begin{equation}
+    \text{CR}(L, T) = \frac{|\{\sigma \in L \mid ct(\sigma) < T\}|}{|L|}.
+\end{equation}
+We evaluate compliance at four artificial SLA thresholds derived from the original log's cycle time distribution: the 95th, 90th, 75th, and 50th percentiles ($T_{95}, T_{90}, T_{75}, T_{50}$). These thresholds represent increasingly demanding service-level targets.
+
+\paragraph{Compliance Improvement Ratio.}
+To normalize improvements across processes with different baseline compliance levels, we compute the relative increase in the number of compliant cases with respect to the original log:
+\begin{equation}
+    \text{CIR}(L^{\text{sim}}, L^{\text{ref}}, T) = \frac{\text{CR}(L^{\text{sim}}, T) - \text{CR}(L^{\text{ref}}, T)}{\text{CR}(L^{\text{ref}}, T)}.
+\end{equation}
+A positive CIR indicates that the policy increases SLA compliance relative to the reference.
+
+\paragraph{Average and Median Cycle Time.}
+We report both the mean $\overline{ct}(L)$ and the median $\widetilde{ct}(L)$ of cycle times per log. The mean captures overall efficiency while the median provides a robust estimate less sensitive to outliers:
+\begin{equation}
+    \overline{ct}(L) = \frac{1}{|L|} \sum_{\sigma \in L} ct(\sigma).
+\end{equation}
+
+\paragraph{Cycle Time Standard Deviation.}
+The standard deviation of cycle times within a simulation run captures the dispersion of case durations. A policy that improves the mean but significantly increases variance may be undesirable in practice:
+\begin{equation}
+    \text{SD}(L) = \sqrt{\frac{1}{|L|-1} \sum_{\sigma \in L} \bigl(ct(\sigma) - \overline{ct}(L)\bigr)^2}.
+\end{equation}
+
+\paragraph{Resource Utilization Balance.}
+To assess whether the agent distributes work equitably across resources rather than overloading a subset, we compute the coefficient of variation (CV) of resource utilization. Let $u_r$ denote the utilization of resource $r$, defined as the ratio of total assigned time to total available time within the simulation horizon. The CV across all resources is:
+\begin{equation}
+    \text{CV}_{\text{util}} = \frac{\text{SD}(\{u_r \mid r \in R\})}{\overline{u}},
+\end{equation}
+where $\overline{u}$ is the mean utilization across resources. A lower CV indicates a more balanced workload distribution.
+
+For each metric, we report the mean and 95\% confidence interval across the $K = 10$ simulation runs per policy.
+
+\subsubsection{Similarity Metrics}
+
+To ensure that improvements in SLA compliance do not come at the cost of unrealistic process behavior, we adopt the multi-perspective evaluation framework proposed by Chapela-Campa et~al.~\cite{framework_for_measuring_the_quality_of_business_process_simulation_models}. This framework compares a set of simulated logs (generated by a policy) against the original event log across four process perspectives: control-flow, temporal, resource, and congestion. For each metric, $K = 10$ simulated logs are individually compared against the original log, and the average distance with a 95\% confidence interval is reported. All metrics are computed using the publicly available \texttt{log-distance-measures} Python package.
+
+\paragraph{Control-Flow: N-Gram Distance (NGD).}
+The NGD measures the difference in the frequency distribution of activity $n$-grams (consecutive activity subsequences) between two logs. For $n = 2$, this is equivalent to comparing the directly-follows graphs of the two logs. The metric computes the sum of absolute differences between the normalized $n$-gram histograms, yielding a value in $[0, 1]$ where 0 indicates identical control-flow distributions. NGD captures whether the DRL policy alters the routing patterns of the process---which activities follow which, and how often---relative to the original log.
+
+\paragraph{Temporal: Absolute Event Distribution (AED).}
+The AED compares the temporal distribution of all events (both starts and completions) along the calendar timeline. It aggregates events into hourly bins and measures the Earth Mover's Distance between the resulting time series. AED provides a global view of whether the DRL policy shifts the overall temporal footprint of the process---for example, concentrating work in certain periods or spreading it differently over time.
+
+\paragraph{Temporal: Circadian Event Distribution (CED).}
+The CED isolates the seasonal component by comparing the distribution of events within each day of the week, averaged over all seven days. This metric captures whether the DRL policy respects the circadian patterns of the process---such as working hours and weekly rhythms---or produces events at times inconsistent with the original behavior.
+
+\paragraph{Temporal: Relative Event Distribution (RED).}
+The RED compares the temporal distribution of events relative to the start of each case rather than in absolute calendar time. For each event, it computes the elapsed time (in hours) since the case arrival, then measures the Earth Mover's Distance between the resulting distributions. RED reveals whether the DRL policy alters the internal temporal structure of cases---for instance, compressing or stretching the time between activities within a trace---independently of when cases arrive.
+
+\paragraph{Resource: Circadian Workforce Distribution (CWD).}
+The CWD compares the number of distinct active resources per hour for each day of the week, averaged over all seven days. Unlike CED, which counts events, CWD counts unique active resources. This metric detects whether the DRL policy changes the workforce utilization pattern---for example, activating more or fewer resources at particular times---relative to the original process.
+
+\paragraph{Congestion: Case Arrival Rate (CAR).}
+The CAR compares the temporal distribution of case arrivals (i.e., the start time of each case's first event) along the calendar timeline. It aggregates arrivals into hourly bins and measures the Earth Mover's Distance between the two time series. Since our simulation environment preserves the arrival process of the original log, CAR primarily serves as a sanity check: significant deviations would indicate an environment configuration issue rather than a policy effect.
+
+\paragraph{Congestion: Cycle Time Distribution (CTD).}
+The CTD compares the empirical distribution of end-to-end case durations between two logs. It builds histograms of cycle times (binned by hour) and measures the 1st Wasserstein Distance between them. While the performance metrics report summary statistics (mean, median), CTD captures the full distributional shape, including tail behavior and multimodality, offering a complementary view of how the DRL policy reshapes the cycle time landscape.
+
+\subsection{Baseline Policies}
+\label{subsec:baselines}
+
+We compare the proposed DRL agent against four baseline decision policies, forming a progressive ablation from fully random to fully DRL-driven decisions. Each policy is defined as a combination of an \emph{activity selection rule} and a \emph{resource allocation rule}, subject to feasibility constraints. All policies operate on the same simulation environment and underlying process model.
+
+\paragraph{RA-RR: Random Activity + Random Resource.}
+At each decision point, the next activity is selected proportionally to the empirical branching probabilities estimated from the log, and a resource is assigned uniformly at random from the feasible and available pool. This policy serves as a naive baseline establishing a lower bound on performance.
+
+\paragraph{GP-RR: Greedy Probability + Random Resource.}
+The next activity is selected greedily as the one with the highest empirical branching probability, while resources are assigned randomly. This tests whether a simple greedy control-flow heuristic provides improvements without any resource intelligence.
+
+\paragraph{DM-RR: Decision Model + Random Resource.}
+The next activity is selected by the ML-based next-activity model from the simulation environment (e.g., an LSTM trained on prefixes), taking the most probable prediction. Resources are assigned randomly. This represents a realistic activity-selection policy that aims to reproduce the original process behavior without optimized resource allocation.
+
+\paragraph{DM-DRL: Decision Model + DRL Resource Agent.}
+Activity selection follows the ML decision model as in DM-RR, while the DRL agent is restricted to resource allocation only. This isolates the contribution of DRL for resource optimization on top of a realistic activity-selection policy and serves as the key comparison for assessing the incremental benefit of joint activity--resource control.
+
+\paragraph{DRL-AR: Full DRL Agent (Activity + Resource).}
+The DRL agent jointly selects the next activity and resource as an $(a, r)$ pair, with masking for infeasible combinations. This evaluates the full proposed architecture, where the agent learns a joint policy $\pi(a, r \mid s)$ to optimize SLA compliance.
+
+All policies are evaluated in the same environment with identical process models, resource calendars, arrival processes, and time-prediction components, ensuring that performance differences are attributable to the decision policy alone.
+
+\subsection{Datasets}
+
+We evaluate the approach on four real-life event logs of varying complexity, selected from the same benchmark collection used by Chapela-Campa et~al.~\cite{framework_for_measuring_the_quality_of_business_process_simulation_models} to ensure comparability with established BPS evaluation results. Table~\ref{tab:datasets} summarizes their characteristics.
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{|l|r|r|r|r|r|}
+\hline
+\textbf{Log} & \textbf{Cases} & \textbf{Events} & \textbf{Variants} & \textbf{Activities} & \textbf{Resources} \\ \hline
+AC\_CRE  & 796   & 3{,}733   & 54+   & 16 & 306+ \\ \hline
+BPIC12   & 6{,}006  & 34{,}906  & 735+  & 6  & 53+  \\ \hline
+BPIC17   & 14{,}778 & 105{,}342 & 1{,}843+ & 7  & 113+ \\ \hline
+CALL     & 521{,}779 & 900{,}374 & 1{,}689+ & 19 & 2{,}712+ \\ \hline
+\end{tabular}
+\vspace{5pt}
+\caption{Characteristics of the event logs used in the evaluation (approximate totals combining training and test splits from~\cite{framework_for_measuring_the_quality_of_business_process_simulation_models}).}
+\label{tab:datasets}
+\end{table}
+
+The logs span diverse domains---academic credential management (AC\_CRE), financial loan applications (BPIC12 and BPIC17), and customer service (CALL)---and vary substantially in scale, number of variants, and resource pool size. This diversity allows us to assess the generalizability of the DRL agent across processes with different structural and operational characteristics.
+
+\subsection{Experimental Protocol}
+
+\paragraph{Simulation configuration.}
+For each combination of event log (4 logs) and decision policy (5 policies), we execute $K = 10$ independent simulation runs, each with a different random seed. Every simulation generates the same number of cases as the original log and starts from the same point in time, ensuring that comparisons are made under equivalent conditions.
+
+\paragraph{SLA threshold definition.}
+For each event log, we compute four artificial SLA thresholds from the original log's empirical cycle time distribution: $T_{95}$, $T_{90}$, $T_{75}$, and $T_{50}$, corresponding to the 95th, 90th, 75th, and 50th percentiles. These thresholds define increasingly demanding compliance targets against which all policies are evaluated.
+
+\paragraph{Aggregation and reporting.}
+For each simulation run we compute all performance and similarity metrics. Across the $K = 10$ runs per policy--log combination, we report the mean and 95\% confidence interval using the $t$-score method.
+
+\paragraph{Statistical tests.}
+To assess the significance of differences between policies, we perform paired $t$-tests or Wilcoxon signed-rank tests comparing DRL-AR against each baseline per process on SLA compliance rates. We also report Cohen's $d$ effect sizes to quantify the practical magnitude of improvements.
+
+\paragraph{DRL training stability.}
+DRL training is inherently stochastic. We fix a set of PPO hyperparameters (learning rate, batch size, discount factor, clipping range) tuned on a held-out validation process not used for final reporting. Each DRL policy is trained multiple times with different seeds, and we select the best-performing checkpoint according to validation-set SLA compliance to reduce variance due to training stochasticity.
+
+\subsection{Experimental Design}
+\label{subsec:experimental_design}
+
+The evaluation is organized into three experiments, each aligned with one research question.
+
+\subsubsection{Experiment~1: SLA Compliance (RQ1)}
+
+This experiment evaluates whether the DRL agent increases the proportion of cases completing within predefined SLA thresholds. For each of the four event logs and each of the four SLA thresholds ($T_{95}$, $T_{90}$, $T_{75}$, $T_{50}$), we simulate the process under the full DRL-AR policy and compute the SLA Compliance Rate and Compliance Improvement Ratio relative to the original log. We additionally report average cycle time, median cycle time, and cycle time standard deviation for context.
+
+A positive result for H1 requires that DRL-AR achieves a higher compliance rate than the original log at a majority of threshold--log combinations, with statistically significant CIR values. The use of multiple thresholds allows us to assess whether the agent's improvements are concentrated in the tail of the distribution (easier targets) or extend to more demanding SLA levels.
+
+\subsubsection{Experiment~2: Behavioral Analysis (RQ2)}
+
+This experiment characterizes the behavioral changes introduced by the DRL policy by comparing the DRL-generated logs against the original log across all seven similarity metrics: NGD, AED, CED, RED, CWD, CAR, and CTD. The comparison follows the protocol of Chapela-Campa et~al.~\cite{framework_for_measuring_the_quality_of_business_process_simulation_models}: each of the $K = 10$ simulated logs per policy is compared individually against the original log, and mean distances with confidence intervals are reported.
+
+To complement the log-level similarity metrics, we include a descriptive analysis of the most frequent activities, resources, and activity--resource pairs in both the original and DRL-generated logs. This is presented as a comparison of frequency rankings (e.g., top-$n$ bar charts and tables) to provide an interpretable view of which routing and allocation decisions the agent favors.
+
+A positive result for H2 requires that the similarity distances remain within an interpretable range---comparable to the distances observed between different valid simulation models of the same process in~\cite{framework_for_measuring_the_quality_of_business_process_simulation_models}---rather than exhibiting extreme deviations in any perspective.
+
+\subsubsection{Experiment~3: Baseline Comparison and Ablation (RQ3)}
+
+This experiment quantifies the incremental benefit of DRL-based decisions by comparing all five policies (RA-RR, GP-RR, DM-RR, DM-DRL, DRL-AR) on the same simulation environment. For each event log and each SLA threshold, we compute the SLA Compliance Rate, Compliance Improvement Ratio, and Resource Utilization Balance for every policy.
+
+The five policies form a progressive ablation: RA-RR establishes a random lower bound; GP-RR and DM-RR test heuristic and ML-based activity selection without resource intelligence; DM-DRL adds DRL resource allocation to the best activity-selection model; and DRL-AR evaluates the full joint policy. This ladder isolates the contribution of each component---activity selection quality, DRL resource allocation, and joint activity--resource optimization.
+
+A positive result for H3 requires that the policies show a monotonic improvement in SLA compliance from RA-RR through DRL-AR, with statistically significant differences between consecutive steps, confirming that expanding the agent's scope of control yields measurable gains.
+
+\subsection{Expected Analysis}
+
+The analysis proceeds in three stages corresponding to the experiments above. First, we examine SLA compliance across thresholds and processes to assess the absolute effectiveness of the DRL agent. Second, we study the similarity metrics to understand what behavioral changes the agent introduces and whether these changes remain within realistic bounds. In particular, we are interested in configurations where the agent achieves significant compliance improvements while maintaining low control-flow and temporal distances, as these correspond to policies that are both efficient and realistic from a business perspective. Third, we compare all five policies to trace the source of improvements---disentangling the contributions of activity routing, resource allocation, and their joint optimization---and to identify process characteristics that favor or limit the agent's effectiveness.
+
+\section{Conclusions and Future Work}
+\label{sec:conclusions_and_future_work}
+
+\subsection{Expected Conclusions}
+
+We expect the DRL agent to generate processes with a reduced cycle time while preserving a high degree of similarity to the original process in both control-flow and temporal dimensions. In essence, the optimized policies should improve performance without producing unrealistic or structurally implausible traces.
+
+\subsection{Future Work}
+
+\paragraph{Multi-objective reward function.}  
+A natural extension is the transition from a single-objective reward (cycle time) to a multi-objective formulation. This would allow the agent to jointly optimize outcome-oriented metrics, as in \cite{ppm_resource_constraints}, fairness in workload distribution, economic cost, and other operational indicators, either through weighted combinations or Pareto-based approaches.
+
+\paragraph{Zero-shot DRL with latent representations.}  
+Since the current state representation is a structured JSON, and given evidence from NLP and multimodal models that latent spaces allow broad generalization \cite{Text_Conditional_Image_Generation_with_CLIP}, as well as the emerging results of LLMs in process mining tasks \cite{PM_LLM_Benchmark}, an interesting research direction is \emph{zero-shot DRL}. Here, instructions or goals could be reformulated at inference time so that the agent solves tasks not explicitly present during training, leveraging shared latent structures between processes, objectives, or scenarios.
+
+\paragraph{Evaluation on diverse business process patterns.}  
+The proposed architecture can be evaluated on broader classes of business processes, including batching scenarios \cite{Optimization_of_Activity_Batching_Policies} and intervention-based prescriptive monitoring \cite{ppm_resource_constraints}. This would assess whether the same state--action--reward framework can generalize to variants such as batching decisions, intervention timing, or outcome-oriented optimization with minimal modification.
+
+\paragraph{Variation of simulation parameters and environments.}  
+Although full validation of the simulation environment is beyond the scope of this work, the environment remains a critical part of the architecture. Future research should explore different simulators and parameterizations, including alternative next-activity selection strategies, queueing disciplines, and resource calendars. Investigating these variants, grounded in queueing theory and hybrid simulation techniques, may reveal how robust the DRL agent is to modeling assumptions and how much performance depends on the environment versus the agent architecture itself.
+
+
+
+
+\section{Methodology and Schedule}
+\label{sec:methodology_and_schedule}
+
+This project will follow the Design Science Research (DSR ) methodology, structured into five phases to be developed over a 12-month period.
+
+
+
+\begin{table}[h]
+\begin{tabular}{|l|l|l|r|l|}
+\hline
+Phase                                                                                  & Guideline & Start Date                                                           & \multicolumn{1}{l|}{Weeks} & Output                                                                                                                                 \\ \hline
+\begin{tabular}[c]{@{}l@{}}State of\\ the art\\ Revision\end{tabular}                  & 5         & \begin{tabular}[c]{@{}l@{}}01/09/2025 \\ -\\ 3/10/2025\end{tabular}  & 5                          & article SLR                                                                                                                              \\ \hline
+\begin{tabular}[c]{@{}l@{}}Opportunities\\ of\\ Investigation\\ and Scope\end{tabular} & 2         & \begin{tabular}[c]{@{}l@{}}06/10/2025 \\ -\\ 31/10/2025\end{tabular} & 3                          & \begin{tabular}[c]{@{}l@{}}Definition \\ of state for\\ the agent, \\ tasks,\\ training \\ logs\\ and\\ success\\ metrics\end{tabular} \\ \hline
+\begin{tabular}[c]{@{}l@{}}Prototype \\ implementation\end{tabular}                    & 1         & \begin{tabular}[c]{@{}l@{}}04/11/2025 \\ -\\ 21/11/2025\end{tabular} & 2                          & \begin{tabular}[c]{@{}l@{}}Create a \\ simple\\ prototype\end{tabular}                                                                 \\ \hline
+\end{tabular}
+\vspace{5pt}
+\caption{Thesis 1 Planning} 
+\label{tab:thesis1table}
+\end{table}
+
+for the second semester we are planning the following stages
+
+\begin{table}[h]
+\begin{tabular}{|l|l|l|r|l|}
+\hline
+Phase                                                                               & Guideline & Start Date                                                          & \multicolumn{1}{l|}{Weeks} & Output                                                                                                                                               \\ \hline
+Implementation                                                                      & 1,4,6     & \begin{tabular}[c]{@{}l@{}}19/01/2026\\ -\\ 10/04/2026\end{tabular} & 11                         & \begin{tabular}[c]{@{}l@{}}Training \\ pipeline, \\ log to\\ environment \\ definition,\\ agent model \\ and\\ architecture \\ diagrams\end{tabular} \\ \hline
+Experimentation                                                                     & 3,5       & \begin{tabular}[c]{@{}l@{}}13/04/2026\\ -\\ 08/05/2026\end{tabular} & 3                          & \begin{tabular}[c]{@{}l@{}}results of test,\\ evaluation \\ metrics,\\ advantages, \\ disadvantages\end{tabular}                                     \\ \hline
+\begin{tabular}[c]{@{}l@{}}Conclusions \\ and\\ results \\ divulgation\end{tabular} & 7         & \begin{tabular}[c]{@{}l@{}}11/05/2026\\ -\\ 22/05/2026\end{tabular} & 2                          & \begin{tabular}[c]{@{}l@{}}Research\\ article \\ Master thesis \\ Open-source \\ code\end{tabular}                                                     \\ \hline
+\end{tabular}
+\vspace{5pt}
+\caption{Thesis 2 Planning}
+\label{tab:thesis2table}
+\end{table}
+
+
+\section*{References}
+\label{sec:references}
+
+\bibliographystyle{IEEEtranN}
+\begingroup
+\renewcommand{\section}[2]{}%
+%\renewcommand{\chapter}[2]{}% for other classes
+\small
+\bibliography{main}
+\endgroup
+
+\begin{IEEEbiographynophoto}{David Sequera}
+MSc candidate in Engineering at Universidad de los Andes with a focus on AI-driven business process analysis. Interested in the intersection of simulation, decision automation, and machine learning.
+\end{IEEEbiographynophoto}
+
+\end{document}
+
+    

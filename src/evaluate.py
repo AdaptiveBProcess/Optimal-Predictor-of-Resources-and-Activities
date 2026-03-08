@@ -9,17 +9,17 @@ import matplotlib.pyplot as plt
 
 def main():
 
-    log1 = pd.read_csv("data/logs/PurchasingExample/PurchasingExample.csv")
-    log2 = pd.read_csv("data/simulated_logs/PurchasingExample/PurchasingExample.csv")
-    log3 = pd.read_csv("data/simulated_logs/PurchasingExample/PurchasingExample_RL.csv")
+    log1 = pd.read_csv("data/logs/LoanApp/LoanApp.csv")
+    log2 = pd.read_csv("data/simulated_logs/LoanApp/LoanApp.csv")
+    log3 = pd.read_csv("data/simulated_logs/LoanApp/LoanApp_RL.csv")
 
     original_ids = EventLogIDs(
-        case="caseid",
-        activity="Activity_1",
-        start_time="start_timestamp",
-        end_time="end_timestamp",
-        resource="Resource_1",
-    )
+        case="case_id",
+        activity="activity",
+        start_time="start_time",
+        end_time="end_time",
+        resource="resource",
+    )    
 
     simulated_ids = EventLogIDs(
         case="case",

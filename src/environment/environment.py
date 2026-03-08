@@ -120,7 +120,7 @@ class BusinessProcessEnvironment(gym.Env):
         Returns a binary mask for feasible next activities based on the simulator's
         RoutingPolicy, filtered by Top-K and Top-P (Nucleus) sampling.
         """
-        current_activity = self.simulator.last_activities.get(case.case_id)
+        current_activity = case.activity_history[-1] if case.activity_history else None
         probs_dict = self.simulator.setup.routing_policy.probabilities.get(current_activity, {})
         
         mask = np.zeros(self.simulator.num_activities, dtype=np.float32)

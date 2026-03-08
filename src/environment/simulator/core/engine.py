@@ -22,7 +22,6 @@ class SimulatorEngine:
         self.active_cases = 0
         self.no_more_arrivals = False
         self.current_activities = {}
-        self.last_activities = {} 
         self.waiting_requests = {}
         self.completed_cases = [] 
         self.pending_decisions = [] 
@@ -108,17 +107,16 @@ class SimulatorEngine:
                 activity, resource = yield decision_fulfilled
             else:
                 # 2. Automatic path for normal simulation
-                last_act = self.last_activities.get(case.case_id)
-                activity = self.setup.routing_policy.get_next_activity(case, last_act)
+                activity = self.setup.routing_policy.get_next_activity(case)
                 if activity is None: break
                 resource = self.setup.resource_policy.select_resource(activity, case)
-            
+
             if activity is None: break
 
             self.current_activities[case.case_id] = activity
             yield self.env.process(self.execute_activity(case, activity, resource))
-            
-            self.last_activities[case.case_id] = activity
+
+            case.activity_history.append(activity)
             if case.case_id in self.current_activities:
                 del self.current_activities[case.case_id]
 

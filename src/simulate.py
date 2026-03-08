@@ -24,16 +24,16 @@ def run_basic_simulation():
     To run this script:
     python src/simulate.py
     """
-    log = pd.read_csv("data/logs/PurchasingExample/PurchasingExample.csv")
+    log = pd.read_csv("data/logs/LoanApp/LoanApp.csv")
 
     initializer = ParametricInitializer()
 
     log_names = LogColumnNames(
-        case_id="caseid",
-        activity="Activity_1",
-        resource="Resource_1",
-        start_timestamp="start_timestamp",
-        end_timestamp="end_timestamp",
+        case_id="case_id",
+        activity="activity",
+        resource="resource",
+        start_timestamp="start_time",
+        end_timestamp="end_time",
     )
 
     start_timestamp = log[log_names.start_timestamp].min()
@@ -43,8 +43,8 @@ def run_basic_simulation():
     simulator = SimulatorEngine(setup)
     event_log = simulator.simulate(max_cases=200, convert_to_absolute_time=True)
 
-    export_event_log_to_csv(event_log, "data/simulated_logs/PurchasingExample/PurchasingExample.csv")
-    print(f"Basic DES simulation finished. Simulated event log exported to data/simulated_logs/PurchasingExample/PurchasingExample.csv")
+    export_event_log_to_csv(event_log, "data/simulated_logs/LoanApp/LoanAppSeconOrderRouting.csv")
+    print(f"Basic DES simulation finished. Simulated event log exported to data/simulated_logs/LoanApp/LoanAppSeconOrderRouting.csv")
 
 if __name__ == "__main__":
     run_basic_simulation()
