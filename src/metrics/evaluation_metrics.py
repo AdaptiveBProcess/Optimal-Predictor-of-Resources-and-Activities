@@ -93,8 +93,8 @@ def compute_cycle_times(log_df: pd.DataFrame, case_col: str, start_col: str, end
     """Compute end-to-end cycle time per case (in seconds)."""
     cycle_times = []
     for _, group in log_df.groupby(case_col):
-        st = pd.to_datetime(group[start_col]).min()
-        et = pd.to_datetime(group[end_col]).max()
+        st = pd.to_datetime(group[start_col], format='ISO8601').min()
+        et = pd.to_datetime(group[end_col], format='ISO8601').max()
         cycle_times.append((et - st).total_seconds())
     return np.array(cycle_times)
 
@@ -128,8 +128,8 @@ def compute_resource_utilization_cv(
         return None
 
     log_df = log_df.copy()
-    log_df[start_col] = pd.to_datetime(log_df[start_col])
-    log_df[end_col] = pd.to_datetime(log_df[end_col])
+    log_df[start_col] = pd.to_datetime(log_df[start_col], format='ISO8601')
+    log_df[end_col] = pd.to_datetime(log_df[end_col], format='ISO8601')
 
     horizon_start = log_df[start_col].min()
     horizon_end = log_df[end_col].max()
@@ -203,15 +203,13 @@ def compute_similarity_metrics(
 
     try:
         from log_distance_measures.config import EventLogIDs
-        from log_distance_measures import (
-            n_gram_distance,
-            absolute_event_distribution,
-            circadian_event_distribution,
-            relative_event_distribution,
-            circadian_workforce_distribution,
-            arrival_event_distribution,
-            cycle_time_distribution,
-        )
+        from log_distance_measures.n_gram_distribution import n_gram_distribution_distance
+        from log_distance_measures.absolute_event_distribution import absolute_event_distribution_distance
+        from log_distance_measures.circadian_event_distribution import circadian_event_distribution_distance
+        from log_distance_measures.relative_event_distribution import relative_event_distribution_distance
+        from log_distance_measures.circadian_workforce_distribution import circadian_workforce_distribution_distance
+        from log_distance_measures.case_arrival_distribution import case_arrival_distribution_distance
+        from log_distance_measures.cycle_time_distribution import cycle_time_distribution_distance
     except ImportError:
         print("  WARNING: log-distance-measures not installed. Skipping similarity metrics.")
         print("  Install with: pip install log-distance-measures")
@@ -240,42 +238,42 @@ def compute_similarity_metrics(
 
     # Ensure datetime columns (utc=True for consistency with log-distance-measures)
     for col in [original_ids.start_time, original_ids.end_time]:
-        original[col] = pd.to_datetime(original[col], utc=True)
+        original[col] = pd.to_datetime(original[col], format='ISO8601', utc=True)
     for col in [simulated_ids.start_time, simulated_ids.end_time]:
-        simulated[col] = pd.to_datetime(simulated[col], utc=True)
+        simulated[col] = pd.to_datetime(simulated[col], format='ISO8601', utc=True)
 
     try:
-        result.ngd = n_gram_distance.compute(original, original_ids, simulated, simulated_ids)
+        result.ngd = n_gram_distribution_distance(original, original_ids, simulated, simulated_ids)
     except Exception as e:
         print(f"  NGD computation failed: {e}")
 
     try:
-        result.aed = absolute_event_distribution.compute(original, original_ids, simulated, simulated_ids)
+        result.aed = absolute_event_distribution_distance(original, original_ids, simulated, simulated_ids)
     except Exception as e:
         print(f"  AED computation failed: {e}")
 
     try:
-        result.ced = circadian_event_distribution.compute(original, original_ids, simulated, simulated_ids)
+        result.ced = circadian_event_distribution_distance(original, original_ids, simulated, simulated_ids)
     except Exception as e:
         print(f"  CED computation failed: {e}")
 
     try:
-        result.red = relative_event_distribution.compute(original, original_ids, simulated, simulated_ids)
+        result.red = relative_event_distribution_distance(original, original_ids, simulated, simulated_ids)
     except Exception as e:
         print(f"  RED computation failed: {e}")
 
     try:
-        result.cwd = circadian_workforce_distribution.compute(original, original_ids, simulated, simulated_ids)
+        result.cwd = circadian_workforce_distribution_distance(original, original_ids, simulated, simulated_ids)
     except Exception as e:
         print(f"  CWD computation failed: {e}")
 
     try:
-        result.car = arrival_event_distribution.compute(original, original_ids, simulated, simulated_ids)
+        result.car = case_arrival_distribution_distance(original, original_ids, simulated, simulated_ids)
     except Exception as e:
         print(f"  CAR computation failed: {e}")
 
     try:
-        result.ctd = cycle_time_distribution.compute(original, original_ids, simulated, simulated_ids)
+        result.ctd = cycle_time_distribution_distance(original, original_ids, simulated, simulated_ids, bin_size=pd.Timedelta(hours=1))
     except Exception as e:
         print(f"  CTD computation failed: {e}")
 
