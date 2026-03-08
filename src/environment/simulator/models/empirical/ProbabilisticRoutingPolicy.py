@@ -8,6 +8,10 @@ class ProbabilisticRoutingPolicy(RoutingPolicy):
     def __init__(self, probabilities):
         self.probabilities = probabilities
 
+    def get_activity_probabilities(self, case: "Case") -> dict:
+        current = case.activity_history[-1] if case.activity_history else None
+        return self.probabilities.get(current, {})
+
     def get_next_activity(self, case: "Case"):
         current = case.activity_history[-1] if case.activity_history else None
         choices = self.probabilities.get(current)

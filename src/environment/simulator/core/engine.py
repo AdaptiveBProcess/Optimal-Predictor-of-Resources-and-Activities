@@ -23,8 +23,9 @@ class SimulatorEngine:
         self.no_more_arrivals = False
         self.current_activities = {}
         self.waiting_requests = {}
-        self.completed_cases = [] 
-        self.pending_decisions = [] 
+        self.resource_current_activity = {}  # resource_id -> activity_name (live, cleared on completion)
+        self.completed_cases = []
+        self.pending_decisions = []
 
         self.simpy_resources = {
             r.id: simpy.Resource(self.env, capacity=r.capacity)
@@ -141,20 +142,21 @@ class SimulatorEngine:
             yield req
             del self.waiting_requests[process]
 
+            self.resource_current_activity[resource.id] = activity
             duration = self.setup.processing_time_policy.get_activity_duration(activity, resource)
             yield self.env.timeout(duration)
-            
+            self.resource_current_activity.pop(resource.id, None)
+
             self.event_log.append({
                 "case": case.case_id, "activity": activity, "resource": resource.id,
                 "start": self.env.now - duration, "end": self.env.now
             })
     
     def state(self):
-        """Minimal state dictionary (No Pandas)"""
-        res_occ = {rid: {"in_use": r.count, "capacity": r.capacity, "waiting": len(r.queue)} 
+        """Minimal state dictionary (no Pandas). Includes live resource assignment tracking."""
+        res_occ = {rid: {"in_use": r.count, "capacity": r.capacity, "waiting": len(r.queue)}
                    for rid, r in self.simpy_resources.items()}
-        
-        # Calculate activity waiting counts
+
         act_wait = {}
         for _, (_, act) in self.waiting_requests.items():
             act_wait[str(act)] = act_wait.get(str(act), 0) + 1
@@ -164,9 +166,10 @@ class SimulatorEngine:
 
         return {
             "resource_occupancy": res_occ,
+            "resource_current_activity": dict(self.resource_current_activity),
             "activities_waiting": act_wait,
             "total_waiting": len(self.waiting_requests) + len(self.pending_decisions),
-            "internal_time": self.env.now
+            "internal_time": self.env.now,
         }
 
     def _get_all_activities_list(self):

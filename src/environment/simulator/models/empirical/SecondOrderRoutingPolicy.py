@@ -24,6 +24,15 @@ class SecondOrderRoutingPolicy(RoutingPolicy):
         self.probabilities = probabilities
         self.fallback = fallback
 
+    def get_activity_probabilities(self, case: Case) -> dict:
+        history = case.activity_history
+        current = history[-1] if history else None
+        previous = history[-2] if len(history) >= 2 else None
+        probs = self.probabilities.get((previous, current))
+        if probs:
+            return probs
+        return self.fallback.get_activity_probabilities(case)
+
     def get_next_activity(self, case: Case):
         history = case.activity_history
         current = history[-1] if history else None

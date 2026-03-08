@@ -28,3 +28,12 @@ class RoutingPolicy(ABC):
         :return: The next Activity object, or None if the process has completed.
         """
         pass
+
+    @abstractmethod
+    def get_activity_probabilities(self, case: "Case") -> dict:
+        """
+        Returns {activity: probability} for the next step of the given case.
+        Used for masking and state representation. Must not require callers
+        to know the internal key schema of the policy.
+        """
+        pass

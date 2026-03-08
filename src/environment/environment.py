@@ -19,8 +19,8 @@ class BusinessProcessEnvironment(gym.Env):
         )
 
         self.observation_space = gym.spaces.Box(
-            low=-np.inf,
-            high=np.inf,
+            low=0.0,
+            high=1.0,
             shape=(self.state_dim,),
             dtype=np.float32
         )
@@ -68,49 +68,109 @@ class BusinessProcessEnvironment(gym.Env):
 
     def vectorize_state(self):
         """
-        Converts the simulator's dictionary state into a numerical vector.
-        Optimized to avoid Pandas overhead in the loop.
+        Builds a normalized state vector in [0, 1] with three blocks.
+
+        Block A — Global Process Snapshot  (3*R + A features)
+        --------------------------------------------------------
+        Per resource (ordered by simulator.all_resources):
+          · utilization       : count / capacity
+          · assignment_enc    : normalized index of activity being executed (0 = idle)
+          · queue_pressure    : queue length / 10, clamped to [0, 1]
+        Per activity (ordered by simulator.all_activities):
+          · pending_count     : cases queued for this activity / 10, clamped to [0, 1]
+
+        Block B — Case-Specific Features  (A + 3 features)
+        --------------------------------------------------------
+          · branching_probs   : P(next_activity | current_position), one float per activity
+          · last_activity_enc : (index_of_last_activity + 1) / num_activities (0 = new case)
+          · trace_length_norm : len(history) / 20, clamped to [0, 1]
+          · sla_urgency       : elapsed_time / sla_threshold, clamped to [0, 1]
+
+        Block C — Temporal Features  (2 features)
+        --------------------------------------------------------
+          · hour_of_day  : (now % 86400) / 86400
+          · day_of_week  : ((now // 86400) % 7) / 6
         """
         sim_state = self.simulator.state()
-        internal_time = sim_state["internal_time"]
-        
-        # 1. Resource Occupancy (3 features per resource)
+        now = sim_state["internal_time"]
+        num_act = self.simulator.num_activities
+
+        # ── Block A: Global Process Snapshot ────────────────────────────────────
         res_features = []
         for res in self.simulator.all_resources:
-            occ = sim_state["resource_occupancy"].get(res.id, {"in_use": 0, "capacity": 0, "waiting": 0})
-            res_features.extend([
-                float(occ["in_use"]), 
-                float(occ["capacity"]), 
-                float(occ["waiting"])
-            ])
-            
-        # 2. Activity Waiting Counts (1 feature per activity)
-        act_features = []
-        for act in self.simulator.all_activities:
-            wait_count = sim_state["activities_waiting"].get(str(act), 0)
-            act_features.append(float(wait_count))
-            
-        # 3. Global Counts (1 feature)
-        global_features = [float(sim_state["total_waiting"])]
-        
-        # 4. Fast Time Features (No Pandas!)
-        # Assuming seconds for math. 3600s = 1hr, 86400s = 1day
-        # If time_unit is different, these constants should be adjusted
-        time_of_day = (internal_time % 86400) / 86400.0  # Normalized 0-1
-        day_of_week = (internal_time // 86400) % 7
-        
-        time_features = [internal_time, float(day_of_week), float(time_of_day)]
-        
-        return np.array(res_features + act_features + global_features + time_features, dtype=np.float32)
-    
+            occ = sim_state["resource_occupancy"].get(
+                res.id, {"in_use": 0, "capacity": 1, "waiting": 0}
+            )
+            capacity = max(occ["capacity"], 1)
+
+            utilization = occ["in_use"] / capacity
+
+            current_act = sim_state["resource_current_activity"].get(res.id)
+            if current_act is not None and current_act in self.simulator.all_activities:
+                assignment_enc = self.simulator.all_activities.index(current_act) / num_act
+            else:
+                assignment_enc = 0.0
+
+            queue_pressure = min(occ["waiting"] / 10.0, 1.0)
+
+            res_features.extend([utilization, assignment_enc, queue_pressure])
+
+        # Per-activity: cases in waiting_requests (resource-queue) for each activity
+        act_pending = {}
+        for _, (_, act) in self.simulator.waiting_requests.items():
+            act_pending[act] = act_pending.get(act, 0) + 1
+
+        act_features = [
+            min(act_pending.get(act, 0) / 10.0, 1.0)
+            for act in self.simulator.all_activities
+        ]
+
+        # ── Block B: Case-Specific Features ─────────────────────────────────────
+        case = self.simulator.get_case_needing_decision()
+
+        if case is None:
+            # Simulation ended or between decisions — safe zero vector
+            case_features = [0.0] * (num_act + 3)
+        else:
+            history = case.activity_history
+            current_activity = history[-1] if history else None
+
+            # Last activity encoded as (idx+1)/num_act so that 0 unambiguously means "new case"
+            if history and current_activity in self.simulator.all_activities:
+                last_act_enc = (self.simulator.all_activities.index(current_activity) + 1) / num_act
+            else:
+                last_act_enc = 0.0
+
+            trace_length_norm = min(len(history) / 20.0, 1.0)
+            sla_urgency = min((now - case.start_time) / max(self.sla_threshold, 1.0), 1.0)
+
+            # Branching probabilities for current routing position
+            probs_dict = self.simulator.setup.routing_policy.get_activity_probabilities(case)
+
+            branching_probs = [
+                float(probs_dict.get(act, 0.0))
+                for act in self.simulator.all_activities
+            ]
+
+            case_features = branching_probs + [last_act_enc, trace_length_norm, sla_urgency]
+
+        # ── Block C: Temporal Features ───────────────────────────────────────────
+        time_features = [
+            (now % 86400) / 86400.0,           # hour_of_day
+            ((now // 86400) % 7) / 6.0,        # day_of_week
+        ]
+
+        return np.clip(
+            np.array(res_features + act_features + case_features + time_features, dtype=np.float32),
+            0.0, 1.0,
+        )
 
     @property
     def state_dim(self):
-        # 3 features per resource (in_use, capacity, waiting)
-        # 1 feature per activity (waiting count)
-        # 1 global feature (total waiting)
-        # 3 time features (internal time, day of week, time of day)
-        return (3 * self.simulator.num_resources) + self.simulator.num_activities + 1 + 3
+        # Block A: 3 per resource + 1 per activity
+        # Block B: num_activities (branching probs) + 3 (last_act, trace_len, sla_urgency)
+        # Block C: 2 (hour_of_day, day_of_week)
+        return 3 * self.simulator.num_resources + 2 * self.simulator.num_activities + 5
 
     def _compute_state(self):
         return self.vectorize_state()
@@ -120,8 +180,7 @@ class BusinessProcessEnvironment(gym.Env):
         Returns a binary mask for feasible next activities based on the simulator's
         RoutingPolicy, filtered by Top-K and Top-P (Nucleus) sampling.
         """
-        current_activity = case.activity_history[-1] if case.activity_history else None
-        probs_dict = self.simulator.setup.routing_policy.probabilities.get(current_activity, {})
+        probs_dict = self.simulator.setup.routing_policy.get_activity_probabilities(case)
         
         mask = np.zeros(self.simulator.num_activities, dtype=np.float32)
         

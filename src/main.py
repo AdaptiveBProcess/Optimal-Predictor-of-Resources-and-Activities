@@ -48,11 +48,12 @@ def run_rl_experiment():
         st = pd.to_datetime(group[log_names.start_timestamp]).min()
         et = pd.to_datetime(group[log_names.end_timestamp]).max()
         cycle_times.append((et - st).total_seconds())
-    sla_threshold = np.percentile(cycle_times, 75)
-    print(f"SLA Threshold (p75): {sla_threshold:.2f} seconds")
+    percentile = 95
+    sla_threshold = np.percentile(cycle_times, percentile)
+    print(f"SLA Threshold (p{percentile}): {sla_threshold:.2f} seconds")
 
     # 3. Initialize Environment
-    max_cases = 200
+    max_cases = 20
     env = BusinessProcessEnvironment(simulator, sla_threshold=sla_threshold, max_cases=max_cases)
 
     # 4. Agent Simulation Loop
