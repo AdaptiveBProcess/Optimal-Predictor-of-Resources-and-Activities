@@ -515,31 +515,39 @@ This approximation is a common practice in DRL as in implementations like \cite{
 
 \subsection{Reward Function}
 
-The reward function will be calculated with respect to the cycle time, as the optimization goal is to reduce the cycle time similar reward function to the ones proposed in \cite{Learning_policies_drl, Optimizing_Resource_Allocation_Policies}. Although we would like the agent to specifically to reduce the cycle time to achieve a certain service level of agreement (SLA) because this behavior emulates better a business goal. The agent will have then the task to reduce the cycle time below a certain threshold. 
+The reward function guides the agent toward reducing cycle time below a service-level agreement (SLA) threshold $T$, defined as a percentile of the original log's cycle time distribution. Following a two-part design similar to \cite{Learning_policies_drl, Optimizing_Resource_Allocation_Policies}, we combine a directional signal that provides per-step gradient information with a terminal gate that enforces SLA compliance.
 
-We are going to have two reward one small that indicates directionally what is the goal and one that takes into account the threshold at the end of the simulation. The threshold $T$ for this case will be defined as the percentile 90 of the original log, calculated with the cycle time of each case.  
-
+\paragraph{Directional signal.}
+For a case $\sigma$ with elapsed time $ct(\sigma)$, the directional component is:
 \[
-r(\sigma)=\frac{K}{ct(\sigma)}
+r(\sigma) = \frac{K}{ct(\sigma)},
 \]
+where $K > 0$ is a scaling constant. This signal is inversely proportional to elapsed time: faster cases receive larger rewards, providing a continuous incentive to reduce cycle time at every decision point.
 
+\paragraph{Terminal reward.}
+When a case completes, the agent receives a terminal reward that gates on SLA compliance:
 \[
-R(\sigma)=
+R_{\text{terminal}}(\sigma) =
 \begin{cases}
-+r(\sigma), & ct(\sigma) < T \\[6pt]
+K + r(\sigma), & ct(\sigma) < T \\[6pt]
 -K, & ct(\sigma) \ge T
 \end{cases}
 \]
+Cases that meet the SLA receive a bonus $K$ on top of the directional signal, reinforcing the full sequence of decisions that led to a fast completion. Cases that violate the SLA receive a flat penalty $-K$, discouraging the agent from allowing any case to exceed the threshold.
 
-The use of two rewards serves different but complementary purposes. The first reward provides direction: it helps the model quickly understand what kind of behavior is desirable, which stabilizes learning and speeds up convergence in the early stages.
+\paragraph{Intermediate reward.}
+At each decision point during an ongoing case (before completion), the agent receives an intermediate reward based on the elapsed time up to the current simulation time:
+\[
+R_{\text{intermediate}}(\sigma) =
+\begin{cases}
+r(\sigma), & ct(\sigma) < T \\[6pt]
+-K \cdot \dfrac{ct(\sigma)}{T}, & ct(\sigma) \ge T
+\end{cases}
+\]
+When the case is still within the SLA budget, the agent receives the directional signal $r(\sigma)$, encouraging continued efficiency. When the elapsed time exceeds $T$, the penalty grows linearly with $ct(\sigma)/T$, creating increasing pressure to avoid further delays on cases that have already violated the threshold.
 
-The second reward represents the true objective: ensuring that the process complies with the defined SLA. This reward is only available at the end of each case (or episode), because SLA compliance can only be evaluated once the entire process has finished. While this reward is delayed, it ultimately determines which behaviors are reinforced.
-
-This mechanism is closely related to ideas from dynamic programming. In dynamic programming, solutions are often computed by reasoning backward from the final objective and assigning values to earlier decisions based on their contribution to the final outcome. Reinforcement learning does not explicitly compute solutions backward, but it follows a similar principle: once a final reward is observed, the algorithm assigns credit to the sequence of actions that led to that outcome.
-
-In PPO, credit assignment is handled through value and advantage estimates that are computed using the full return of an episode. Because these estimates include rewards observed later in the process, updates made to the policy reflect the quality of earlier decisions with respect to the final outcome. As a result, rewards that are only observed at the end of an episode can still shape decisions made much earlier, without any explicit backward traversal of the process.
-
-In short, the intermediate reward accelerates learning by providing early guidance, while the final reward ensures alignment with the real goal. Together, they allow the model to learn efficiently without losing focus on SLA compliance.
+\paragraph{Design rationale.}
+The combination of intermediate and terminal rewards addresses the credit assignment problem inherent in long-horizon decision processes. The intermediate reward provides step-level feedback that accelerates learning by signaling the quality of each individual decision without waiting for the case to complete. The terminal reward ensures that the agent's objective remains aligned with the true business goal of SLA compliance. The asymmetric structure—bonus for success, flat or proportional penalty for failure—encourages risk-averse behavior near the threshold boundary. In PPO, these per-step rewards are incorporated into the advantage estimates via generalized advantage estimation (GAE), allowing the value function to learn from denser reward signals and improving both convergence speed and policy quality.
 
 \section{Evaluation}
 \label{sec:evaluation}

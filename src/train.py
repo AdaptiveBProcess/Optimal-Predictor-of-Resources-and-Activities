@@ -89,7 +89,7 @@ def save_checkpoint(agent: PPOAgent, path: str, episode: int, metrics_summary: d
 
 def load_checkpoint(agent: PPOAgent, path: str) -> int:
     """Load model weights. Returns the episode number."""
-    checkpoint = torch.load(path, map_location=agent.device)
+    checkpoint = torch.load(path, map_location=agent.device, weights_only=False)
     agent.policy.load_state_dict(checkpoint["policy_state_dict"])
     agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     print(f"  Checkpoint loaded from: {path} (episode {checkpoint['episode']})")
