@@ -31,7 +31,9 @@ class DESInitializer(Initializer):
         waiting_times = self._build_waiting_time_policy(log, time_unit)
         calendar = self._build_calendar_policy(log, start_timestamp)
         arrivals = self._build_arrival_policy(log, time_unit)
-        resources = self._build_resource_policy(log)
+        resource_list = self._build_resource_list(log)
+        resource_policy = SkillBasedResourcePolicy(resource_list)
+        activities = sorted(self._extract_activities(log))
         return SimulationSetup(
             time_unit=time_unit,
             start_timestamp=start_timestamp,
@@ -39,8 +41,10 @@ class DESInitializer(Initializer):
             waiting_time_policy=waiting_times,
             processing_time_policy=processing_times,
             calendar_policy=calendar,
-            arrival_policy=arrivals, 
-            resource_policy=resources
+            arrival_policy=arrivals,
+            resource_policy=resource_policy,
+            activities=activities,
+            resources=resource_list
         )
 
 
@@ -186,7 +190,7 @@ class DESInitializer(Initializer):
 
         return EmpiricalArrivalPolicy(inter_arrivals.tolist()) 
     
-    def _build_resource_policy(self, log):
+    def _build_resource_list(self, log):
         sillks = defaultdict(set)
         for _, row in log.iterrows():
             resource_name = row[self.log_names.resource]
@@ -197,7 +201,7 @@ class DESInitializer(Initializer):
         for r_name in resources_names:
             resource = Resource(id=r_name, skills=sillks[r_name])
             resources.append(resource)
-        return SkillBasedResourcePolicy(resources=resources)
+        return resources
 
     def _extract_activities(self, log):
         activities = set(log[self.log_names.activity].unique())

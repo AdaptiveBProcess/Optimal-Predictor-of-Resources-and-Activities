@@ -45,24 +45,40 @@ class RewardFunction(ABC):
 
 class SLARewardFunction(RewardFunction):
     """
-    Two-part reward from the thesis (Section 'Reward Function').
+    SLA-based reward encouraging completion before the deadline.
 
-    Directional signal:
-        r(σ) = K / ct(σ)
+    The reward is based on the relation between the current cycle time (ct)
+    and the SLA threshold (T).
 
-    Terminal (case completed):
-        R(σ) = K + r(σ)        if ct(σ) < T
-        R(σ) = -K              if ct(σ) >= T
+    Intermediate states (case not yet completed):
+        If ct < T:
+            R(σ) = K * (1 - ct / T)
 
-    Intermediate (case not yet completed, ct = elapsed so far):
-        R(σ) = r(σ)            if ct < T
-        R(σ) = -K * ct / T    if ct >= T
+            The reward decreases linearly from +K (at ct → 0)
+            to 0 when the cycle time approaches the SLA threshold.
+
+        If ct ≥ T:
+            R(σ) = -K * (ct / T)
+
+            The penalty grows linearly as the cycle time exceeds
+            the SLA threshold.
+
+    Terminal states (case completed):
+        If ct < T:
+            R(σ) = +K
+
+            The case finished within the SLA.
+
+        If ct ≥ T:
+            R(σ) = -K
+
+            The case violated the SLA.
 
     Parameters
     ----------
     K : float
-        Scaling constant that controls reward magnitude.
-        Defaults to 1.0.
+        Scaling constant controlling the magnitude of rewards
+        and penalties. Defaults to 1.0.
     """
 
     def __init__(self, K: float = 1.0):
@@ -71,13 +87,21 @@ class SLARewardFunction(RewardFunction):
     def compute(self, ctx: CaseRewardContext) -> float:
         ct = max(ctx.cycle_time, 1e-6)
         T = max(ctx.sla_threshold, 1e-6)
-        r_sigma = self.K / ct
-
-        if ctx.is_completed:
-            return (self.K + r_sigma) if ct < T else -self.K
+        K = self.K
+        # Intermediate: directional signal at each step
+        if ct < T:
+            reward = (K/100) * (1.0 - ct / T)  # Linear: 1→0 as you approach T
         else:
-            return r_sigma if ct < T else -self.K * ct / T
+            reward = -(K/100) * (ct / T)        # Increasingly negative past T
 
+        # Terminal: case completed
+        if ctx.is_completed:
+            if ct < T:
+                reward = +K
+            else:
+                reward = -K
+
+        return reward
 
 class BinaryRewardFunction(RewardFunction):
     """

@@ -46,8 +46,9 @@ def parse_args():
     parser.add_argument("--save_every", type=int, default=10, help="Save checkpoint every N episodes")
     parser.add_argument("--update_every", type=int, default=1, help="PPO update every N episodes")
     parser.add_argument("--run_name", type=str, default=None, help="Name for this run")
-    parser.add_argument("--top_p", type=float, default=0.9, help="Nucleus filtering for activity mask")
-    parser.add_argument("--top_k", type=int, default=None, help="Top-k filtering for activity mask")
+    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
+    parser.add_argument("--top_p", type=float, default=0.5, help="Nucleus filtering for activity mask")
+    parser.add_argument("--top_k", type=int, default=2, help="Top-k filtering for activity mask")
     return parser.parse_args()
 
 
@@ -203,6 +204,12 @@ def main():
         lr=args.lr,
     )
 
+    # --- Resume from checkpoint ---
+    start_episode = 1
+    if args.resume is not None:
+        start_episode = load_checkpoint(agent, args.resume) + 1
+        print(f"  Resuming training from episode {start_episode}")
+
     # --- Metrics tracker ---
     hyperparams = {
         "log_path": args.log_path,
@@ -228,7 +235,7 @@ def main():
     best_cr = -1.0
     update_count = 0
 
-    for ep in range(1, args.episodes + 1):
+    for ep in range(start_episode, args.episodes + 1):
         ep_start = time.time()
 
         # --- Run episode ---

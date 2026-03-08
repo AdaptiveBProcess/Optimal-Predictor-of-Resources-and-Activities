@@ -10,9 +10,9 @@ class SimulatorEngine:
         self.setup = simulationSetup
         self.is_rl_mode = False
         
-        # Simple Cache: Calculate these once so we don't repeat work in loops
-        self._activities = self._get_all_activities_list()
-        self._resources = self.setup.resource_policy.resources if hasattr(self.setup.resource_policy, 'resources') else []
+        # Simple Cache: Get activities and resources from setup
+        self._activities = sorted(self.setup.activities) + [None]
+        self._resources = self.setup.resources
         
         self.reset()
 
@@ -172,15 +172,6 @@ class SimulatorEngine:
             "internal_time": self.env.now,
         }
 
-    def _get_all_activities_list(self):
-        if hasattr(self.setup.routing_policy, 'probabilities'):
-            acts = set()
-            for src, targets in self.setup.routing_policy.probabilities.items():
-                if src: acts.add(src)
-                for tgt in targets: 
-                    if tgt: acts.add(tgt)
-            return sorted(list(acts)) + [None]
-        return [None]
 
     @property
     def all_activities(self): return self._activities

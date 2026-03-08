@@ -41,8 +41,8 @@ def parse_args():
     parser.add_argument("--policy_name", type=str, default="DRL-AR")
     parser.add_argument("--log_name", type=str, default="LoanApp")
     parser.add_argument("--output_dir", type=str, default="data/evaluation_results")
-    parser.add_argument("--top_p", type=float, default=0.9)
-    parser.add_argument("--top_k", type=int, default=None)
+    parser.add_argument("--top_p", type=float, default=0.6)
+    parser.add_argument("--top_k", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args()
 

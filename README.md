@@ -173,6 +173,11 @@ python src/train.py \
     --run_name experiment_01
 ```
 
+```bash
+python src/train.py --log_path data/logs/LoanApp/LoanApp.csv --episodes 200 --max_cases 50 --percentile 90 --lr 3e-4 --save_every 10 --run_name experiment_01
+```
+
+
 Key arguments:
 - `--episodes`: Number of training episodes (default: 100)
 - `--max_cases`: Cases simulated per episode (default: 20)

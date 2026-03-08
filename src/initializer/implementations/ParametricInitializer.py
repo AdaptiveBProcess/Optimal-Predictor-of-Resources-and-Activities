@@ -32,7 +32,9 @@ class ParametricInitializer(DESInitializer): # Inherit from DESInitializer to re
         waiting_times = self._build_waiting_time_policy(log, time_unit) # Reuses from DESInitializer (passes for now)
         calendar = self._build_calendar_policy(log, start_timestamp) # Reuses from DESInitializer
         arrivals = self._build_arrival_policy(log, time_unit) # Overridden
-        resources = self._build_resource_policy(log) # Reuses from DESInitializer
+        resource_list = self._build_resource_list(log) # Reuses from DESInitializer
+        resource_policy = SkillBasedResourcePolicy(resource_list)
+        activities = sorted(self._extract_activities(log))
         return SimulationSetup(
             time_unit=time_unit,
             start_timestamp=start_timestamp,
@@ -41,7 +43,9 @@ class ParametricInitializer(DESInitializer): # Inherit from DESInitializer to re
             processing_time_policy=processing_times,
             calendar_policy=calendar,
             arrival_policy=arrivals,
-            resource_policy=resources
+            resource_policy=resource_policy,
+            activities=activities,
+            resources=resource_list
         )
 
     def _build_arrival_policy(self, log, time_unit: str) -> ArrivalPolicy:

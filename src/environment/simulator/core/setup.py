@@ -12,3 +12,5 @@ class SimulationSetup:
     arrival_policy: ArrivalPolicy.ArrivalPolicy
     calendar_policy: CalendarPolicy.CalendarPolicy
     resource_policy: ResourceAllocationPolicy.ResourceAllocationPolicy
+    activities: list
+    resources: list
