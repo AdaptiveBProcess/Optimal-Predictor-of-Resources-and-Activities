@@ -5,7 +5,7 @@ import random
 from environment.simulator.adapters.event_log_to_csv import export_event_log_to_csv
 from initializer.implementations.ParametricInitializer import ParametricInitializer
 from environment.simulator.core.setup import SimulationSetup
-from environment.environment import BusinessProcessEnvironment
+from environment.core.env import BusinessProcessEnvironment
 from environment.simulator.core.log_names import LogColumnNames
 from environment.simulator.core.engine import SimulatorEngine
 from agent.agent import PPOAgent
@@ -79,7 +79,7 @@ def run_rl_experiment():
             break
         
         # b) Get activity mask
-        activity_mask = env.get_activity_mask(case_needing_decision, k=None, p=0.9)
+        activity_mask = env.get_activity_mask(case_needing_decision)
         
         # c) Define resource mask callback for the agent
         def res_mask_cb(act_idx):

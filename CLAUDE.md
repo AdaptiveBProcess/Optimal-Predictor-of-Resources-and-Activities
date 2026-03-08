@@ -76,7 +76,11 @@ SimulatorEngine (RL mode)
 **`src/environment/environment.py` — `BusinessProcessEnvironment`**
 - Gymnasium `Env` wrapping `SimulatorEngine`.
 - `action_space`: `MultiDiscrete([num_activities, num_resources])`.
-- State vector: 3 features per resource (in_use, capacity, waiting) + 1 per activity (wait count) + 1 global + 3 time features.
+- State vector `s ∈ ℝ^d`, `d = 3|R| + 2|A| + 5`, structured in four blocks:
+  - **Global** (3|R|): per resource — utilization `u_i`, assignment encoding `η_i`, queue pressure `q_i`
+  - **Demand** (|A|): per activity — pending demand `κ_j` (cases awaiting execution)
+  - **Case** (|A|+3): branching probabilities `b_c`, last activity `ℓ_c`, trace length `λ_c`, SLA urgency `φ_c`
+  - **Temporal** (2): hour of day `τ_h`, day of week `τ_d`
 - Reward: `+1` per case meeting SLA, `0` otherwise.
 - Activity/resource masks enforce valid transitions and skill constraints.
 
@@ -118,7 +122,7 @@ This is a master's thesis project at Universidad de los Andes. Understanding the
 ### Problem framing
 
 The process optimization problem is framed as an MDP:
-- **State**: current snapshot of the running simulation (resource occupancy, activity queues, time features).
+- **State**: `s ∈ ℝ^d` snapshot at each decision point — global resource utilization/assignment/queue pressure, per-activity pending demand, case-specific features (branching probs, last activity, trace length, SLA urgency), and temporal features (hour, day). Dimension `d = 3|R| + 2|A| + 5`.
 - **Action**: a joint `(activity, resource)` pair — the agent selects *both* what to do next *and* who does it. This is the key novelty over prior work, which fixes control-flow and only optimizes resource assignment.
 - **Reward**: SLA compliance — a case is a success if its cycle time falls below a threshold `T` (defined as a percentile of the original log's cycle time distribution, e.g. p75 or p90).
 
@@ -134,9 +138,6 @@ The thesis defines a two-part reward:
 
 The current implementation in `environment.py` uses a simplified version (`+1` if SLA met, `0` otherwise). The full two-part reward is the intended target.
 
-### Planned state representation (not yet implemented)
-
-The thesis targets a transformer-based encoder trained jointly with the DRL agent on a structured JSON representation of the simulation state (resource utilization, last N events, active cases). The current hand-crafted numeric vector is a stepping stone toward this.
 
 ### Evaluation
 

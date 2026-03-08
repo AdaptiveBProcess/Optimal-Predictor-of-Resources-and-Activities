@@ -9,6 +9,7 @@
 \usepackage{tabularx}
 \usepackage{adjustbox}
 \usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{caption}
 \captionsetup[table]{skip=4pt} % tighten caption spacing
 \usepackage[numbers]{natbib}
@@ -273,8 +274,8 @@ The proposed work is novel in three ways:
     \item \textbf{Optimization of activity routing and resource allocation.} 
     Prior DRL-based approaches largely optimize resource allocation given fixed control-flow, whereas we allow the agent to choose both the next event (activity instance) and its executing resource.
 
-    \item \textbf{Embedding-based state representation.} 
-    Instead of hand-crafted state vectors, we represent the process state using embeddings derived from structured JSON summaries and machine-learning predictions of next activities and processing times.
+    \item \textbf{Case-aware state representation.} 
+    Unlike prior work where the state captures only the global process snapshot for resource dispatching, our state includes case-specific features---such as the case's current position, SLA urgency, and branching probabilities---enabling the agent to reason about both routing and resource allocation jointly.
 
 \end{enumerate}
 
@@ -411,31 +412,91 @@ We selected this model due to the improvement in the prediction of times and als
 
 \subsection{State}
 
-The state is described in this part is quite different that usual approaches like \cite{ppm_optimal_policy_temporal_data, Learning_policies_drl, Optimizing_Resource_Allocation_Policies} . It uses NLP techniques to generate the state of the actor, as demonstrated in \cite{Text_Conditional_Image_Generation_with_CLIP} NLP embedding representations goes beyond the field of natural language processing and transcends to complex fields like image generation. Also taking into account works like \cite{business_process_modeling_llms} LLMs are capable of understand business process. With this background into account we proposed a new pipeline for the generation of the state. State in the initial state will be extracted from the actual state of the simulation as an ongoing process (a set of cases) that will be modeled as a strictured format with calculated metrics, in this case a JSON file with the information of the number of cases, resources utilization, resources available, list of the last $n$ events of the whole process. Then this information is processed by a encoder that converts this sequence into a embedding representation of the state, this state is then passed to the agent allowing it to capture much more information than with another feature engineered approach. Additionally we will concatenate the probability distribution predicted by the environment in order to facilitate the decision and stability of the agent knowing which option is the most probable nonetheless probably not the optimal.
+The state $s \in \mathcal{S}$ provides the agent with a numerical snapshot of the simulation at each decision point. Unlike \cite{Learning_policies_drl, Optimizing_Resource_Allocation_Policies}, where the state captures only global process information for resource dispatching, our formulation additionally includes features of the specific case $c$ for which the agent selects both the next activity and its executing resource. All features are normalized to $[0, 1]$ to improve sample efficiency \cite{sutton_2018_rl_intro}.
 
-We will use a transformer-based encoder trained jointly with the DRL agent on the structured JSON representation of the state. The encoder parameters are updated through the DRL loss, allowing the state representation to adapt to the decision task.
+Let $R = \{r_1, \dots, r_{|R|}\}$ be the ordered set of resources, $A = \{a_1, \dots, a_{|A|}\}$ the ordered set of activities, $\sigma_c = \langle e_1, \dots, e_n \rangle$ the prefix of case $c$, and $T$ the SLA threshold. The state is defined by the following components:
 
-% TODO: Add Explanation of resources calculations by the enviroment
-% Resources availability (capacity)
-% Utilization Rate (All traces Total_Assigned_Time/Available_Total_Weekly_Time)
-% Total_Assigned_Time = Assigned_Time + Excecuted
-% Available_Total_Weekly_Time
+\begin{itemize}
 
-\subsubsection{Resource Metrics Computation}
+    \item \textbf{Utilization} ($u_i$):
+    The fraction of resource $r_i$'s capacity currently in use:
+    \[
+        u_i = \frac{\text{count}(r_i)}{\text{cap}(r_i)}.
+    \]
 
-Resource-related metrics are computed directly by the simulation environment using a reactive update mechanism. Rather than recalculating all metrics at each decision point, the environment subscribes to relevant simulation events, such as activity start, activity completion, and resource allocation or release. Whenever such an event occurs, the affected metrics are updated incrementally.
+    \item \textbf{Assignment} ($\eta_i$):
+    An encoding of the activity that resource $r_i$ is currently executing:
+    \[
+        \eta_i =
+        \begin{cases}
+            j / |A|, & \text{if } r_i \text{ is executing } a_j, \\
+            0, & \text{if } r_i \text{ is idle.}
+        \end{cases}
+    \]
 
-Resource availability is defined as the remaining capacity of a resource at a given time, considering its total capacity and currently assigned activities. Resource utilization is computed as the ratio between the total time a resource has been assigned to activities and the total available working time within a predefined horizon (e.g., weekly capacity).
+    \item \textbf{Queue Pressure} ($q_i$):
+    The number of cases waiting for resource $r_i$, normalized and clamped:
+    \[
+        q_i = \min\!\left(\frac{|\text{queue}(r_i)|}{\theta_q},\; 1\right).
+    \]
 
-Formally, utilization is calculated as:
-\[
-\text{Utilization} = \frac{\text{Total\_Assigned\_Time}}{\text{Available\_Total\_Weekly\_Time}}
-\]
-where \textit{Total\_Assigned\_Time} includes both executed activity time and currently assigned but not yet completed work.
+    \item \textbf{Pending Demand} ($\kappa_j$):
+    The number of cases awaiting execution of activity $a_j$:
+    \[
+        \kappa_j = \min\!\left(\frac{|\text{pending}(a_j)|}{\theta_q},\; 1\right).
+    \]
 
-This reactive design ensures that metrics remain consistent with the evolving simulation state while minimizing computational overhead. Moreover, it allows additional metrics to be introduced on demand without altering the core simulation logic, as new subscribers can be attached to the event stream whenever the agent requires additional information.
+    \item \textbf{Last Activity} ($\ell_c$):
+    The position of case $c$ in the process:
+    \[
+        \ell_c =
+        \begin{cases}
+            j / |A|, & \text{if the last executed activity is } a_j, \\
+            0, & \text{if } \sigma_c = \langle\rangle.
+        \end{cases}
+    \]
 
+    \item \textbf{Trace Length} ($\lambda_c$):
+    The number of activities executed so far in case $c$:
+    \[
+        \lambda_c = \min\!\left(\frac{|\sigma_c|}{\theta_\lambda},\; 1\right).
+    \]
 
+    \item \textbf{SLA Urgency} ($\phi_c$):
+    The elapsed time of case $c$ relative to the SLA threshold:
+    \[
+        \phi_c = \min\!\left(\frac{t_{\text{now}} - t_s(e_1)}{T},\; 1\right).
+    \]
+
+    \item \textbf{Branching Probabilities} ($\mathbf{b}_c$):
+    The transition probability vector from the routing policy at the current position of case $c$:
+    \[
+        \mathbf{b}_c = \big[\, P(a_j \mid a_{\text{last}}) \,\big]_{j=1}^{|A|}.
+    \]
+
+    \item \textbf{Hour of Day} ($\tau_h$):
+    The normalized time within the current day:
+    \[
+        \tau_h = \frac{t_{\text{now}} \bmod 86400}{86400}.
+    \]
+
+    \item \textbf{Day of Week} ($\tau_d$):
+    The normalized day within the current week:
+    \[
+        \tau_d = \frac{\lfloor t_{\text{now}} / 86400 \rfloor \bmod 7}{6}.
+    \]
+
+\end{itemize}
+
+The temporal features allow the agent to learn calendar-dependent patterns implicitly \cite{Optimizing_Resource_Allocation_Policies}. 
+The full state vector $s \in \mathbf{R}^{d}$ concatenates all components:
+\begin{align*}
+    s = \big[\, &\underbrace{u_1, \eta_1, q_1, \;\dots,\; u_{|R|}, \eta_{|R|}, q_{|R|}}_{\text{global: } 3|R|}, \\
+    &\underbrace{\kappa_1, \dots, \kappa_{|A|}}_{\text{demand: } |A|}, \;\;
+    \underbrace{\ell_c, \lambda_c, \phi_c, \; \mathbf{b}_c}_{\text{case: } |A|+3}, \;\;
+    \underbrace{\tau_h, \tau_d}_{\text{time: } 2} \,\big],
+\end{align*}
+with dimension $d = 3|R| + 2|A| + 5$.
 
 \subsection{Agent}
 
@@ -670,6 +731,9 @@ A natural extension is the transition from a single-objective reward (cycle time
 
 \paragraph{Zero-shot DRL with latent representations.}  
 Since the current state representation is a structured JSON, and given evidence from NLP and multimodal models that latent spaces allow broad generalization \cite{Text_Conditional_Image_Generation_with_CLIP}, as well as the emerging results of LLMs in process mining tasks \cite{PM_LLM_Benchmark}, an interesting research direction is \emph{zero-shot DRL}. Here, instructions or goals could be reformulated at inference time so that the agent solves tasks not explicitly present during training, leveraging shared latent structures between processes, objectives, or scenarios.
+
+\paragraph{Learned state representations.}
+The current hand-crafted state vector provides a compact and interpretable input for the agent. A natural extension is to replace it with a learned representation. Given that the simulation state can be serialized as a structured JSON---including resource utilization, active cases, and recent events---a transformer-based encoder could be trained jointly with the DRL agent to produce a dense embedding of the process state. This approach draws on evidence that embedding representations generalize beyond their original domain \cite{Text_Conditional_Image_Generation_with_CLIP}, and on emerging results showing that language models can capture business process semantics \cite{PM_LLM_Benchmark, business_process_modeling_llms}. Such an encoder could allow the agent to exploit richer patterns in the simulation state than a fixed feature vector can express, and would serve as a stepping stone toward zero-shot generalization across processes and objectives.
 
 \paragraph{Evaluation on diverse business process patterns.}  
 The proposed architecture can be evaluated on broader classes of business processes, including batching scenarios \cite{Optimization_of_Activity_Batching_Policies} and intervention-based prescriptive monitoring \cite{ppm_resource_constraints}. This would assess whether the same state--action--reward framework can generalize to variants such as batching decisions, intervention timing, or outcome-oriented optimization with minimal modification.
