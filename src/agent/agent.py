@@ -177,6 +177,9 @@ class PPOAgent:
         return activity_idx.item(), resource_idx.item()
 
     def update(self):
+        if not self.buffer.rewards:
+            return None
+
         # Monte Carlo estimate of returns
         rewards = []
         discounted_reward = 0
@@ -185,7 +188,7 @@ class PPOAgent:
                 discounted_reward = 0
             discounted_reward = reward + (self.gamma * discounted_reward)
             rewards.insert(0, discounted_reward)
-            
+
         # Normalizing the rewards
         rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
@@ -203,10 +206,15 @@ class PPOAgent:
         advantages = rewards.detach() - old_state_values.detach()
 
         # Optimize policy for K epochs
+        total_policy_loss = 0.0
+        total_value_loss = 0.0
+        total_entropy = 0.0
+        total_loss_val = 0.0
+
         for _ in range(self.K_epochs):
             # Evaluating old actions and values
             logprobs, entropy, state_values = self.policy.evaluate(
-                old_states, old_activities, old_resources, 
+                old_states, old_activities, old_resources,
                 old_activity_masks, old_resource_masks
             )
 
@@ -217,19 +225,35 @@ class PPOAgent:
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
+            policy_loss = -torch.min(surr1, surr2).mean()
+            value_loss = 0.5 * self.MseLoss(state_values, rewards)
+            entropy_bonus = 0.01 * entropy.mean()
+
             # final loss of PyTorch optimization
-            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * entropy
-            
+            loss = policy_loss + value_loss - entropy_bonus
+
             # take gradient step
             self.optimizer.zero_grad()
-            loss.mean().backward()
+            loss.backward()
             self.optimizer.step()
-            
+
+            total_policy_loss += policy_loss.item()
+            total_value_loss += value_loss.item()
+            total_entropy += entropy.mean().item()
+            total_loss_val += loss.item()
+
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
 
         # clear buffer
         self.buffer.clear()
+
+        return {
+            "policy_loss": total_policy_loss / self.K_epochs,
+            "value_loss": total_value_loss / self.K_epochs,
+            "entropy": total_entropy / self.K_epochs,
+            "total_loss": total_loss_val / self.K_epochs,
+        }
 
 class RolloutBuffer:
     def __init__(self):

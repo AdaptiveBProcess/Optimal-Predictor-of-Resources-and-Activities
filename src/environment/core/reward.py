@@ -9,17 +9,19 @@ if TYPE_CHECKING:
 @dataclass
 class CaseRewardContext:
     """
-    All the information a reward function might need to score a completed case.
+    All the information a reward function might need to score a case.
 
-    This context is built by the environment at case-completion time and passed
-    to the reward function.  Adding new fields here (rather than changing the
-    RewardFunction signature) keeps every implementation forward-compatible.
+    This context is built by the environment at each decision point and at
+    case-completion time and passed to the reward function.  Adding new fields
+    here (rather than changing the RewardFunction signature) keeps every
+    implementation forward-compatible.
     """
-    cycle_time: float
+    cycle_time: float       # elapsed time (final if completed, current if not)
     sla_threshold: float
     num_events: int
     start_time: float
     end_time: float
+    is_completed: bool = True
 
 
 class RewardFunction(ABC):
@@ -45,12 +47,16 @@ class SLARewardFunction(RewardFunction):
     """
     Two-part reward from the thesis (Section 'Reward Function').
 
-    Intermediate (per-case directional signal):
+    Directional signal:
         r(σ) = K / ct(σ)
 
-    Terminal (SLA compliance gate):
-        R(σ) = +r(σ)   if ct(σ) < T
-        R(σ) = -K       if ct(σ) >= T
+    Terminal (case completed):
+        R(σ) = K + r(σ)        if ct(σ) < T
+        R(σ) = -K              if ct(σ) >= T
+
+    Intermediate (case not yet completed, ct = elapsed so far):
+        R(σ) = r(σ)            if ct < T
+        R(σ) = -K * ct / T    if ct >= T
 
     Parameters
     ----------
@@ -63,14 +69,14 @@ class SLARewardFunction(RewardFunction):
         self.K = K
 
     def compute(self, ctx: CaseRewardContext) -> float:
-        ct = ctx.cycle_time
-        if ct <= 0:
-            ct = 1e-6  # guard against zero-duration cases
+        ct = max(ctx.cycle_time, 1e-6)
+        T = max(ctx.sla_threshold, 1e-6)
+        r_sigma = self.K / ct
 
-        if ct < ctx.sla_threshold:
-            return self.K / ct
+        if ctx.is_completed:
+            return (self.K + r_sigma) if ct < T else -self.K
         else:
-            return -self.K
+            return r_sigma if ct < T else -self.K * ct / T
 
 
 class BinaryRewardFunction(RewardFunction):

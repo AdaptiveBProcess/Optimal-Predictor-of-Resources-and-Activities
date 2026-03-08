@@ -1,0 +1,316 @@
+"""
+OPRA Training Script.
+
+Runs multiple episodes of the RL simulation, tracks metrics per episode,
+saves model checkpoints, and exports training curves.
+
+Usage:
+    python src/train.py
+    python src/train.py --episodes 200 --max_cases 50 --percentile 90
+"""
+
+import argparse
+import os
+import time
+import random
+
+import numpy as np
+import pandas as pd
+import torch
+
+from environment.simulator.adapters.event_log_to_csv import export_event_log_to_csv
+from initializer.implementations.ParametricInitializer import ParametricInitializer
+from environment.simulator.core.setup import SimulationSetup
+from environment.core.env import BusinessProcessEnvironment
+from environment.core.mask import NucleusMaskFunction
+from environment.simulator.core.log_names import LogColumnNames
+from environment.simulator.core.engine import SimulatorEngine
+from agent.agent import PPOAgent
+
+from metrics.training_metrics import (
+    TrainingMetricsTracker,
+    UpdateMetrics,
+    compute_episode_metrics,
+)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="OPRA RL Training")
+    parser.add_argument("--log_path", type=str, default="data/logs/LoanApp/LoanApp.csv")
+    parser.add_argument("--episodes", type=int, default=100, help="Number of training episodes")
+    parser.add_argument("--max_cases", type=int, default=20, help="Cases per episode")
+    parser.add_argument("--percentile", type=int, default=95, help="SLA percentile threshold")
+    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
+    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--save_every", type=int, default=10, help="Save checkpoint every N episodes")
+    parser.add_argument("--update_every", type=int, default=1, help="PPO update every N episodes")
+    parser.add_argument("--run_name", type=str, default=None, help="Name for this run")
+    parser.add_argument("--top_p", type=float, default=0.9, help="Nucleus filtering for activity mask")
+    parser.add_argument("--top_k", type=int, default=None, help="Top-k filtering for activity mask")
+    return parser.parse_args()
+
+
+def compute_cycle_times_from_log(event_log: list, time_unit: str = "seconds") -> list:
+    """
+    Compute cycle times from the simulator's event_log (list of dicts).
+    Each dict has keys: case, activity, resource, start, end (numeric SimPy times).
+    """
+    cases = {}
+    for event in event_log:
+        cid = event["case"]
+        start = event["start"]
+        end = event["end"]
+        if cid not in cases:
+            cases[cid] = {"min_start": start, "max_end": end}
+        else:
+            cases[cid]["min_start"] = min(cases[cid]["min_start"], start)
+            cases[cid]["max_end"] = max(cases[cid]["max_end"], end)
+
+    cycle_times = []
+    for cid, times in cases.items():
+        ct = times["max_end"] - times["min_start"]
+        cycle_times.append(ct)
+    return cycle_times
+
+
+def save_checkpoint(agent: PPOAgent, path: str, episode: int, metrics_summary: dict):
+    """Save model weights + training metadata."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    checkpoint = {
+        "episode": episode,
+        "policy_state_dict": agent.policy.state_dict(),
+        "optimizer_state_dict": agent.optimizer.state_dict(),
+        "metrics_summary": metrics_summary,
+    }
+    torch.save(checkpoint, path)
+    print(f"  Checkpoint saved: {path}")
+
+
+def load_checkpoint(agent: PPOAgent, path: str) -> int:
+    """Load model weights. Returns the episode number."""
+    checkpoint = torch.load(path, map_location=agent.device)
+    agent.policy.load_state_dict(checkpoint["policy_state_dict"])
+    agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    print(f"  Checkpoint loaded from: {path} (episode {checkpoint['episode']})")
+    return checkpoint["episode"]
+
+
+def run_single_episode(
+    env: BusinessProcessEnvironment,
+    simulator: SimulatorEngine,
+    agent: PPOAgent,
+    deterministic: bool = False,
+) -> tuple:
+    """
+    Run one full simulation episode.
+    Returns (total_reward, num_steps, cycle_times).
+    """
+    obs, info = env.reset()
+    terminated = False
+    truncated = False
+    total_reward = 0.0
+    num_steps = 0
+
+    while not (terminated or truncated):
+        case = simulator.get_case_needing_decision()
+        if case is None:
+            break
+
+        activity_mask = env.get_activity_mask(case)
+
+        def res_mask_cb(act_idx):
+            act_name = simulator.all_activities[act_idx]
+            return env.get_resource_mask(act_name, case)
+
+        act_idx, res_idx = agent.select_action(
+            state=obs,
+            activity_mask=activity_mask,
+            resource_mask_callback=res_mask_cb,
+            deterministic=deterministic,
+        )
+
+        action = np.array([act_idx, res_idx])
+        next_obs, reward, terminated, truncated, info = env.step(action)
+
+        # Store transition in agent buffer (only during training)
+        if not deterministic:
+            agent.buffer.rewards.append(reward)
+            agent.buffer.is_terminals.append(terminated or truncated)
+
+        obs = next_obs
+        total_reward += reward
+        num_steps += 1
+
+    cycle_times = compute_cycle_times_from_log(simulator.event_log)
+    return total_reward, num_steps, cycle_times
+
+
+def main():
+    args = parse_args()
+
+    # --- Reproducibility ---
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    # --- Run directory ---
+    if args.run_name is None:
+        args.run_name = f"run_{time.strftime('%Y%m%d_%H%M%S')}"
+    run_dir = os.path.join("data/training_runs", args.run_name)
+
+    # --- Load data ---
+    log = pd.read_csv(args.log_path)
+    log_names = LogColumnNames(
+        case_id="case_id",
+        activity="activity",
+        resource="resource",
+        start_timestamp="start_time",
+        end_timestamp="end_time",
+    )
+
+    # --- Build simulation setup ---
+    initializer = ParametricInitializer()
+    start_timestamp = log[log_names.start_timestamp].min()
+    time_unit = "seconds"
+    setup: SimulationSetup = initializer.build(log, log_names, start_timestamp, time_unit)
+    simulator = SimulatorEngine(setup)
+
+    # --- SLA threshold ---
+    original_cycle_times = []
+    for case_id, group in log.groupby(log_names.case_id):
+        st = pd.to_datetime(group[log_names.start_timestamp]).min()
+        et = pd.to_datetime(group[log_names.end_timestamp]).max()
+        original_cycle_times.append((et - st).total_seconds())
+    sla_threshold = np.percentile(original_cycle_times, args.percentile)
+    baseline_cr = np.mean(np.array(original_cycle_times) < sla_threshold)
+    print(f"SLA Threshold (p{args.percentile}): {sla_threshold:.2f}s")
+    print(f"Baseline CR (original log): {baseline_cr:.2%}")
+
+    # --- Environment ---
+    env = BusinessProcessEnvironment(
+        simulator,
+        sla_threshold=sla_threshold,
+        max_cases=args.max_cases,
+        activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p),
+    )
+
+    # --- Agent ---
+    agent = PPOAgent(
+        state_dim=env.observation_space.shape[0],
+        num_activities=simulator.num_activities,
+        num_resources=simulator.num_resources,
+        lr=args.lr,
+    )
+
+    # --- Metrics tracker ---
+    hyperparams = {
+        "log_path": args.log_path,
+        "episodes": args.episodes,
+        "max_cases": args.max_cases,
+        "sla_percentile": args.percentile,
+        "sla_threshold": sla_threshold,
+        "baseline_cr": baseline_cr,
+        "lr": args.lr,
+        "gamma": args.gamma,
+        "seed": args.seed,
+        "top_p": args.top_p,
+        "top_k": args.top_k,
+    }
+    tracker = TrainingMetricsTracker(log_dir=run_dir, hyperparams=hyperparams)
+
+    # ================================================================ #
+    #  Training Loop
+    # ================================================================ #
+    print(f"\nStarting training: {args.episodes} episodes, {args.max_cases} cases each")
+    print(f"Run directory: {run_dir}\n")
+
+    best_cr = -1.0
+    update_count = 0
+
+    for ep in range(1, args.episodes + 1):
+        ep_start = time.time()
+
+        # --- Run episode ---
+        total_reward, num_steps, cycle_times = run_single_episode(
+            env=env,
+            simulator=simulator,
+            agent=agent,
+            deterministic=False,
+        )
+
+        ep_duration = time.time() - ep_start
+
+        # --- Compute and log episode metrics ---
+        ep_metrics = compute_episode_metrics(
+            episode=ep,
+            total_reward=total_reward,
+            num_steps=num_steps,
+            cycle_times=cycle_times,
+            sla_threshold=sla_threshold,
+            episode_duration_sec=ep_duration,
+        )
+        tracker.log_episode(ep_metrics)
+        tracker.print_episode_summary(ep_metrics, baseline_cr=baseline_cr)
+
+        # --- PPO Update ---
+        if ep % args.update_every == 0:
+            update_count += 1
+            # NOTE: agent.update() should return loss info.
+            # If your current PPOAgent.update() doesn't return losses,
+            # you'll need to modify it (see the adapter below).
+            loss_info = agent.update()
+
+            if loss_info is not None:
+                upd_metrics = UpdateMetrics(
+                    update=update_count,
+                    episode=ep,
+                    policy_loss=loss_info.get("policy_loss", 0.0),
+                    value_loss=loss_info.get("value_loss", 0.0),
+                    entropy=loss_info.get("entropy", 0.0),
+                    total_loss=loss_info.get("total_loss", 0.0),
+                    approx_kl=loss_info.get("approx_kl"),
+                    clip_fraction=loss_info.get("clip_fraction"),
+                )
+                tracker.log_update(upd_metrics)
+                tracker.print_update_summary(upd_metrics)
+
+        # --- Save checkpoint ---
+        is_best = ep_metrics.sla_compliance_rate > best_cr
+        if is_best:
+            best_cr = ep_metrics.sla_compliance_rate
+
+        if ep % args.save_every == 0 or is_best:
+            ckpt_path = os.path.join(run_dir, "checkpoints", f"checkpoint_ep{ep:04d}.pt")
+            save_checkpoint(agent, ckpt_path, ep, {
+                "sla_compliance_rate": ep_metrics.sla_compliance_rate,
+                "avg_cycle_time": ep_metrics.avg_cycle_time,
+                "total_reward": ep_metrics.total_reward,
+            })
+
+            if is_best:
+                best_path = os.path.join(run_dir, "checkpoints", "best_model.pt")
+                save_checkpoint(agent, best_path, ep, {
+                    "sla_compliance_rate": ep_metrics.sla_compliance_rate,
+                    "avg_cycle_time": ep_metrics.avg_cycle_time,
+                    "total_reward": ep_metrics.total_reward,
+                })
+
+        # --- Periodic save of metrics ---
+        if ep % args.save_every == 0:
+            tracker.save()
+
+    # --- Final save ---
+    tracker.save()
+    final_path = os.path.join(run_dir, "checkpoints", "final_model.pt")
+    save_checkpoint(agent, final_path, args.episodes, {
+        "sla_compliance_rate": tracker.episode_history[-1].sla_compliance_rate,
+    })
+
+    print(f"\nTraining complete.")
+    print(f"Best CR: {best_cr:.2%} at episode {tracker._best_episode}")
+    print(f"Metrics saved to: {run_dir}")
+
+
+if __name__ == "__main__":
+    main()

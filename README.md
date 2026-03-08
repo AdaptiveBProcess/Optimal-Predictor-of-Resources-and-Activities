@@ -84,8 +84,7 @@ This cycle of `state -> action -> reward -> new state` continues, allowing the a
 opra/
 ├── .git/
 ├── .gitignore
-├── .vscode/
-├── GEMINI.md
+├── CLAUDE.md
 ├── LICENSE
 ├── README.md
 ├── requirements.txt
@@ -98,29 +97,36 @@ opra/
 │   └── Thesis_Proposal.pdf
 └── src/
     ├── agent/
-    │   ├── agent.py
-    │   └── __pycache__/
+    │   └── agent.py
     ├── environment/
+    │   ├── core/
+    │   │   ├── env.py
+    │   │   ├── mask.py
+    │   │   └── reward.py
     │   ├── simulator/
     │   │   ├── adapters/
     │   │   ├── core/
     │   │   ├── models/
     │   │   └── policies/
-    │   ├── entities/
-    │   │   ├── Activity.py
-    │   │   ├── Case.py
-    │   │   ├── Events.py
-    │   │   └── Resource.py
-    │   ├── environment.py
-    │   └── __pycache__/
+    │   └── entities/
+    │       ├── Activity.py
+    │       ├── Case.py
+    │       ├── Events.py
+    │       └── Resource.py
     ├── initializer/
     │   ├── implementations/
-    │   │   └── DESInitializer.py
-    │   ├── Initializer.py
-    │   └── __pycache__/
+    │   │   ├── DESInitializer.py
+    │   │   └── ParametricInitializer.py
+    │   └── Initializer.py
+    ├── metrics/
+    │   ├── __init__.py
+    │   ├── training_metrics.py
+    │   └── evaluation_metrics.py
     ├── evaluate.py
+    ├── evaluate_policy.py
     ├── main.py
-    └── simulate.py
+    ├── simulate.py
+    └── train.py
 ```
 
 ## Getting Started
@@ -149,8 +155,57 @@ python src/simulate.py
 This will output a simulated event log to `data/simulated_logs/PurchasingExample/PurchasingExample.csv`.
 
 #### 2. Reinforcement Learning Experiment
-To run a simulation with an RL agent (PPO example):
+To run a single-episode RL simulation (quick test):
 ```bash
 python src/main.py
 ```
-This will run a simulation where an RL agent learns resource allocation policies and outputs a simulated event log to `data/simulated_logs/PurchasingExample/PurchasingExample_RL.csv`.
+
+#### 3. Training a Policy
+To train a PPO agent over multiple episodes with metric tracking and checkpointing:
+```bash
+python src/train.py \
+    --log_path data/logs/LoanApp/LoanApp.csv \
+    --episodes 200 \
+    --max_cases 50 \
+    --percentile 90 \
+    --lr 3e-4 \
+    --save_every 10 \
+    --run_name experiment_01
+```
+
+Key arguments:
+- `--episodes`: Number of training episodes (default: 100)
+- `--max_cases`: Cases simulated per episode (default: 20)
+- `--percentile`: SLA threshold percentile (default: 95)
+- `--top_p`: Nucleus filtering threshold for activity masking (default: 0.9)
+- `--update_every`: PPO update frequency in episodes (default: 1)
+
+Output structure:
+```
+data/training_runs/experiment_01/
+├── checkpoints/
+│   ├── checkpoint_ep0010.pt
+│   ├── checkpoint_ep0020.pt
+│   ├── best_model.pt
+│   └── final_model.pt
+├── episode_metrics.csv
+├── update_metrics.csv
+└── summary.json
+```
+
+#### 4. Evaluating a Trained Policy
+To evaluate a trained checkpoint over K independent runs and compute the full metrics suite (performance + similarity):
+```bash
+python src/evaluate_policy.py \
+    --checkpoint data/training_runs/experiment_01/checkpoints/best_model.pt \
+    --log_path data/logs/LoanApp/LoanApp.csv \
+    --K 10 \
+    --policy_name DRL-AR \
+    --log_name LoanApp
+```
+
+This runs K greedy (deterministic) simulations, exports each as a CSV with absolute timestamps, and computes:
+- **Performance**: Compliance rates at T95/T90/T75/T50, compliance improvement ratios, cycle time statistics, resource utilization CV
+- **Similarity** (requires `log-distance-measures`): NGD, AED, CED, RED, CWD, CAR, CTD
+
+Results are aggregated as mean ± 95% CI and saved to `data/evaluation_results/`.

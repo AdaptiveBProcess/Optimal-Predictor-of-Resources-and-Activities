@@ -1,7 +1,6 @@
 import gymnasium as gym
 import numpy as np
 import pandas as pd
-import simpy
 
 from environment.simulator.core.engine import SimulatorEngine
 from environment.core.reward import (
@@ -55,18 +54,39 @@ class BusinessProcessEnvironment(gym.Env):
 
     def step(self, action):
         act_idx, res_idx = action
-        
+
         # Map indices to actual activity and resource
         # Note: In RL mode, act_idx might represent 'END' if defined in all_activities
         activity_type = self.simulator.all_activities[act_idx]
         resource = self.simulator.all_resources[res_idx]
+
+        # Capture the case receiving this decision before advancing
+        current_case = self.simulator.get_case_needing_decision()
 
         # Apply decision to simulator (it will resume the process_case)
         self.simulator.apply_decision(activity_type, resource)
 
         state, completed = self._advance_to_next_decision()
 
+        now = self.simulator.state()["internal_time"]
+        completed_ids = {id(c) for c in completed}
+
         reward = 0.0
+
+        # Intermediate reward for the decided case if it did not complete
+        if current_case is not None and id(current_case) not in completed_ids:
+            elapsed = now - current_case.start_time
+            ctx = CaseRewardContext(
+                cycle_time=elapsed,
+                sla_threshold=self.sla_threshold,
+                num_events=len(current_case.activity_history),
+                start_time=current_case.start_time,
+                end_time=now,
+                is_completed=False,
+            )
+            reward += self.reward_function.compute(ctx)
+
+        # Terminal reward for all completed cases
         for case in completed:
             ctx = CaseRewardContext(
                 cycle_time=case.cycle_time,
@@ -74,6 +94,7 @@ class BusinessProcessEnvironment(gym.Env):
                 num_events=len(case.activity_history),
                 start_time=case.start_time,
                 end_time=case.end_time,
+                is_completed=True,
             )
             reward += self.reward_function.compute(ctx)
             self.completed_cases += 1
