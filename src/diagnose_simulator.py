@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from collections import defaultdict
 
-from initializer.implementations.DESInitializer import DESInitializer
+from initializer.implementations.ParametricInitializer import ParametricInitializer
 from environment.simulator.core.setup import SimulationSetup
 from environment.simulator.core.log_names import LogColumnNames
 from environment.simulator.core.engine import SimulatorEngine
@@ -215,14 +215,14 @@ def analyze_arrival_policy(setup, n_samples=100):
 
 def main():
     # --- Load original log ---
-    log = pd.read_csv("data/logs/PurchasingExample/PurchasingExample.csv")
+    log = pd.read_csv("data/logs/LoanApp/LoanApp.csv")
     log_names = LogColumnNames(
         case_id="case_id", activity="activity", resource="resource",
         start_timestamp="start_time", end_timestamp="end_time",
     )
 
     # --- Build setup ---
-    initializer = DESInitializer()
+    initializer = ParametricInitializer()
     start_timestamp = log[log_names.start_timestamp].min()
     setup = initializer.build(log, log_names, start_timestamp, "seconds")
 

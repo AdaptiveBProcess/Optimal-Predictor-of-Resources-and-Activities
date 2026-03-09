@@ -15,7 +15,7 @@ from environment.simulator.models.empirical.WeeklyCalendarPolicy import WeeklyCa
 
 # New parametric policies
 from environment.simulator.models.distributions.ExponentialArrivalPolicy import ExponentialArrivalPolicy
-from environment.simulator.models.distributions.NormalProcessingTimePolicy import NormalProcessingTimePolicy
+from environment.simulator.models.distributions.LogNormalProcessingTimePolicy import LogNormalProcessingTimePolicy
 
 from initializer.implementations.DESInitializer import DESInitializer
 
@@ -93,7 +93,7 @@ class ParametricInitializer(DESInitializer): # Inherit from DESInitializer to re
                 duration /= 60
             elif time_unit == "hours":
                 duration /= 3600
-            if duration < 0:
+            if duration <= 0:  # NOTE: strict inequality, skip zero-duration events
                 continue
 
             act = row[self.log_names.activity]
@@ -101,12 +101,14 @@ class ParametricInitializer(DESInitializer): # Inherit from DESInitializer to re
 
         params_by_activity = {}
         for activity, durations in durations_by_activity.items():
+            durations = np.array(durations)
+            durations = durations[durations > 0]  # safety filter
             if len(durations) > 0:
-                mean = np.mean(durations)
-                std_dev = np.std(durations)
-                params_by_activity[activity] = (mean, std_dev)
+                log_durations = np.log(durations)
+                mu = float(np.mean(log_durations))
+                sigma = float(np.std(log_durations))
+                params_by_activity[activity] = (mu, sigma)
             else:
-                # Default to some values if no durations found for an activity
-                params_by_activity[activity] = (0.0, 0.0) # Or some other sensible default
+                params_by_activity[activity] = (0.0, 0.1)
 
-        return NormalProcessingTimePolicy(params_by_activity)
+        return LogNormalProcessingTimePolicy(params_by_activity)
