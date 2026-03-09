@@ -35,37 +35,14 @@ class ResourceMaskContext:
 # ── Abstract base classes ────────────────────────────────────────────────────
 
 class ActivityMaskFunction(ABC):
-    """
-    Determines which activities the agent is allowed to select.
-
-    Receives an ActivityMaskContext and returns a binary numpy mask
-    of shape (num_activities,).
-    """
-
     @abstractmethod
     def compute(self, ctx: ActivityMaskContext) -> np.ndarray:
-        """
-        :param ctx: Context with branching probabilities and activity list.
-        :return: Binary float32 mask — 1.0 for allowed activities, 0.0 otherwise.
-        """
         pass
 
 
 class ResourceMaskFunction(ABC):
-    """
-    Determines which resources the agent is allowed to select for a
-    given activity.
-
-    Receives a ResourceMaskContext and returns a binary numpy mask
-    of shape (num_resources,).
-    """
-
     @abstractmethod
     def compute(self, ctx: ResourceMaskContext) -> np.ndarray:
-        """
-        :param ctx: Context with activity name and resource list.
-        :return: Binary float32 mask — 1.0 for allowed resources, 0.0 otherwise.
-        """
         pass
 
 
@@ -87,11 +64,24 @@ class NucleusMaskFunction(ActivityMaskFunction):
         Nucleus probability threshold.  Activities are included in decreasing
         probability order until cumulative probability >= p.  Set to 1.0 to
         disable nucleus filtering.
+    end_threshold : float
+        Minimum branching probability for the END (None) action to be allowed.
+        If the probability of None is below this threshold, it is masked out
+        and the agent must continue the trace.  This prevents the agent from
+        exploiting low-probability early terminations.
+        Default is 0.5 (END must be the majority transition to be allowed).
+        Set to 0.0 to disable this filter (allow END whenever it has any probability).
     """
 
-    def __init__(self, k: Optional[int] = None, p: float = 0.9):
+    def __init__(
+        self,
+        k: Optional[int] = None,
+        p: float = 0.9,
+        end_threshold: float = 0.5,
+    ):
         self.k = k
         self.p = p
+        self.end_threshold = end_threshold
 
     def compute(self, ctx: ActivityMaskContext) -> np.ndarray:
         num_activities = len(ctx.all_activities)
@@ -101,21 +91,41 @@ class NucleusMaskFunction(ActivityMaskFunction):
             mask[-1] = 1.0  # only END is allowed
             return mask
 
+        # ── Step 0: Filter END (None) based on threshold ────────────
+        end_prob = ctx.probabilities.get(None, 0.0)
+        filtered_probs = {}
         for act_name, prob in ctx.probabilities.items():
+            if act_name is None:
+                # Only include END if its probability meets the threshold
+                if end_prob >= self.end_threshold:
+                    filtered_probs[act_name] = prob
+                # Otherwise: skip it, agent must continue
+            else:
+                filtered_probs[act_name] = prob
+
+        # If filtering removed everything (only END existed but below threshold),
+        # this shouldn't happen in a well-formed process, but handle gracefully
+        if not filtered_probs:
+            # Allow END as fallback — the process has no other option
+            mask[-1] = 1.0
+            return mask
+
+        # ── Step 1: Build probability mask ──────────────────────────
+        for act_name, prob in filtered_probs.items():
             try:
                 idx = ctx.all_activities.index(act_name)
                 mask[idx] = prob
             except ValueError:
                 continue
 
-        # Top-K filtering
+        # ── Step 2: Top-K filtering ─────────────────────────────────
         if self.k is not None and 0 < self.k < num_activities:
             top_k_indices = np.argsort(mask)[-self.k:]
             new_mask = np.zeros_like(mask)
             new_mask[top_k_indices] = mask[top_k_indices]
             mask = new_mask
 
-        # Top-P (nucleus) filtering
+        # ── Step 3: Top-P (nucleus) filtering ───────────────────────
         if self.p < 1.0:
             sorted_indices = np.argsort(mask)[::-1]
             sorted_probs = mask[sorted_indices]
@@ -129,11 +139,23 @@ class NucleusMaskFunction(ActivityMaskFunction):
                 new_mask[top_p_indices] = mask[top_p_indices]
                 mask = new_mask
 
+        # ── Step 4: Binarize ────────────────────────────────────────
         binary_mask = (mask > 0).astype(np.float32)
 
-        # Ensure at least one activity is allowed (fallback to END)
+        # Ensure at least one activity is allowed
         if binary_mask.sum() == 0:
-            binary_mask[-1] = 1.0
+            # Fallback: allow the highest-probability non-END activity
+            for act_name, prob in sorted(filtered_probs.items(), key=lambda x: -x[1]):
+                if act_name is not None:
+                    try:
+                        idx = ctx.all_activities.index(act_name)
+                        binary_mask[idx] = 1.0
+                        break
+                    except ValueError:
+                        continue
+            # If still nothing (no non-END activities), allow END
+            if binary_mask.sum() == 0:
+                binary_mask[-1] = 1.0
 
         return binary_mask
 

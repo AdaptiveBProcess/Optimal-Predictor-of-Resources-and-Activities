@@ -17,9 +17,9 @@ import random
 import numpy as np
 import pandas as pd
 import torch
+from contextlib import nullcontext
 
-from environment.simulator.adapters.event_log_to_csv import export_event_log_to_csv
-from initializer.implementations.ParametricInitializer import ParametricInitializer
+from initializer.implementations.DESInitializer import DESInitializer
 from environment.simulator.core.setup import SimulationSetup
 from environment.core.env import BusinessProcessEnvironment
 from environment.core.mask import NucleusMaskFunction
@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument("--update_every", type=int, default=1, help="PPO update every N episodes")
     parser.add_argument("--run_name", type=str, default=None, help="Name for this run")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
-    parser.add_argument("--top_p", type=float, default=0.5, help="Nucleus filtering for activity mask")
+    parser.add_argument("--top_p", type=float, default=0.9, help="Nucleus filtering for activity mask")
     parser.add_argument("--top_k", type=int, default=2, help="Top-k filtering for activity mask")
     return parser.parse_args()
 
@@ -102,6 +102,7 @@ def run_single_episode(
     simulator: SimulatorEngine,
     agent: PPOAgent,
     deterministic: bool = False,
+    eval_mode: bool = False,
 ) -> tuple:
     """
     Run one full simulation episode.
@@ -112,36 +113,39 @@ def run_single_episode(
     truncated = False
     total_reward = 0.0
     num_steps = 0
+    context = torch.no_grad() if eval_mode else nullcontext()
+    with context:
+        while not (terminated or truncated):
+            case = simulator.get_case_needing_decision()
+            if case is None:
+                break
 
-    while not (terminated or truncated):
-        case = simulator.get_case_needing_decision()
-        if case is None:
-            break
+            activity_mask = env.get_activity_mask(case)
 
-        activity_mask = env.get_activity_mask(case)
+            def res_mask_cb(act_idx):
+                act_name = simulator.all_activities[act_idx]
+                return env.get_resource_mask(act_name, case)
 
-        def res_mask_cb(act_idx):
-            act_name = simulator.all_activities[act_idx]
-            return env.get_resource_mask(act_name, case)
+            act_idx, res_idx = agent.select_action(
+                state=obs,
+                activity_mask=activity_mask,
+                resource_mask_callback=res_mask_cb,
+                deterministic=deterministic,
+            )
 
-        act_idx, res_idx = agent.select_action(
-            state=obs,
-            activity_mask=activity_mask,
-            resource_mask_callback=res_mask_cb,
-            deterministic=deterministic,
-        )
+            action = np.array([act_idx, res_idx])
+            activity_type = simulator.all_activities[act_idx]
+            #print(case.case_id,activity_type)
+            next_obs, reward, terminated, truncated, info = env.step(action)
 
-        action = np.array([act_idx, res_idx])
-        next_obs, reward, terminated, truncated, info = env.step(action)
+            # Store transition in agent buffer (only during training)
+            if not eval_mode:
+                agent.buffer.rewards.append(reward)
+                agent.buffer.is_terminals.append(terminated or truncated)
 
-        # Store transition in agent buffer (only during training)
-        if not deterministic:
-            agent.buffer.rewards.append(reward)
-            agent.buffer.is_terminals.append(terminated or truncated)
-
-        obs = next_obs
-        total_reward += reward
-        num_steps += 1
+            obs = next_obs
+            total_reward += reward
+            num_steps += 1
 
     cycle_times = compute_cycle_times_from_log(simulator.event_log)
     return total_reward, num_steps, cycle_times
@@ -171,7 +175,7 @@ def main():
     )
 
     # --- Build simulation setup ---
-    initializer = ParametricInitializer()
+    initializer = DESInitializer()
     start_timestamp = log[log_names.start_timestamp].min()
     time_unit = "seconds"
     setup: SimulationSetup = initializer.build(log, log_names, start_timestamp, time_unit)

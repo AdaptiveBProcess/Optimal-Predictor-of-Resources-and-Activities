@@ -39,8 +39,8 @@ class SimulatorEngine:
 
     def _convert_event_log_to_absolute_time(self):
         for event in self.event_log:
-            event["start"] = (self.start_timestamp + pd.to_timedelta(event["start"], unit='seconds')).isoformat()
-            event["end"] = (self.start_timestamp + pd.to_timedelta(event["end"], unit='seconds')).isoformat()
+            event["start"] = (self.start_timestamp + pd.to_timedelta(event["start"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            event["end"] = (self.start_timestamp + pd.to_timedelta(event["end"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
     def simulate(self, until: float = None, max_cases: int = None, convert_to_absolute_time: bool = False):
         """Standard SimPy simulation (Fast)"""

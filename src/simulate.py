@@ -1,7 +1,7 @@
 import pandas as pd
 
 from environment.simulator.adapters.event_log_to_csv import export_event_log_to_csv
-from initializer.implementations.ParametricInitializer import ParametricInitializer
+from initializer.implementations.DESInitializer import DESInitializer
 from environment.simulator.core.setup import SimulationSetup
 from environment.simulator.core.log_names import LogColumnNames
 
@@ -24,9 +24,9 @@ def run_basic_simulation():
     To run this script:
     python src/simulate.py
     """
-    log = pd.read_csv("data/logs/LoanApp/LoanApp.csv")
+    log = pd.read_csv("data/logs/PurchasingExample/PurchasingExample.csv")
 
-    initializer = ParametricInitializer()
+    initializer = DESInitializer()
 
     log_names = LogColumnNames(
         case_id="case_id",
@@ -42,9 +42,9 @@ def run_basic_simulation():
     setup: SimulationSetup = initializer.build(log, log_names, start_timestamp, time_unit)
     simulator = SimulatorEngine(setup)
     event_log = simulator.simulate(max_cases=200, convert_to_absolute_time=True)
-
-    export_event_log_to_csv(event_log, "data/simulated_logs/LoanApp/LoanAppSeconOrderRouting.csv")
-    print(f"Basic DES simulation finished. Simulated event log exported to data/simulated_logs/LoanApp/LoanAppSeconOrderRouting.csv")
+    #print(setup.routing_policy)
+    export_event_log_to_csv(event_log, "data/simulated_logs/PurchasingExample/PurchasingExample01.csv")
+    print(f"Basic DES simulation finished. Simulated event log exported to data/simulated_logs/PurchasingExample/PurchasingExample01.csv")
 
 if __name__ == "__main__":
     run_basic_simulation()

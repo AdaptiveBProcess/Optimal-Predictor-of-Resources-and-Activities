@@ -208,6 +208,9 @@ python src/evaluate_policy.py \
     --policy_name DRL-AR \
     --log_name LoanApp
 ```
+```bash
+python src/evaluate_policy.py --checkpoint data/training_runs/experiment_01/checkpoints/best_model.pt --log_path data/logs/LoanApp/LoanApp.csv --K 10 --policy_name DRL-AR --log_name LoanApp
+```
 
 This runs K greedy (deterministic) simulations, exports each as a CSV with absolute timestamps, and computes:
 - **Performance**: Compliance rates at T95/T90/T75/T50, compliance improvement ratios, cycle time statistics, resource utilization CV

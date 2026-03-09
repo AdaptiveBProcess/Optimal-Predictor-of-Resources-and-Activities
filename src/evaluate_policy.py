@@ -19,7 +19,7 @@ import pandas as pd
 import torch
 
 from environment.simulator.adapters.event_log_to_csv import export_event_log_to_csv
-from initializer.implementations.ParametricInitializer import ParametricInitializer
+from initializer.implementations.DESInitializer import DESInitializer
 from environment.simulator.core.setup import SimulationSetup
 from environment.core.env import BusinessProcessEnvironment
 from environment.core.mask import NucleusMaskFunction
@@ -41,7 +41,7 @@ def parse_args():
     parser.add_argument("--policy_name", type=str, default="DRL-AR")
     parser.add_argument("--log_name", type=str, default="LoanApp")
     parser.add_argument("--output_dir", type=str, default="data/evaluation_results")
-    parser.add_argument("--top_p", type=float, default=0.6)
+    parser.add_argument("--top_p", type=float, default=0.9)
     parser.add_argument("--top_k", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args()
@@ -61,7 +61,7 @@ def run_evaluation():
     )
 
     # --- Setup ---
-    initializer = ParametricInitializer()
+    initializer = DESInitializer()
     start_timestamp = log[log_names.start_timestamp].min()
     time_unit = "seconds"
     setup: SimulationSetup = initializer.build(log, log_names, start_timestamp, time_unit)
@@ -133,7 +133,7 @@ def run_evaluation():
             env=env_k,
             simulator=simulator_k,
             agent=agent,
-            deterministic=True,  # Greedy during evaluation
+            deterministic=False,  # Sthocastic evaluation
         )
         duration = time.time() - t0
 

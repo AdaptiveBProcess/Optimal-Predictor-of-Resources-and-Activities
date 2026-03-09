@@ -26,7 +26,7 @@ class DESInitializer(Initializer):
     def build(self, log, log_names: LogColumnNames, start_timestamp: str, time_unit: str) -> SimulationSetup:
         self.log_names = log_names
 
-        routing = self._build_second_order_routing_policy(log)
+        routing = self._build_routing_policy(log)
         processing_times = self._build_processing_time_policy(log, time_unit)
         waiting_times = self._build_waiting_time_policy(log, time_unit)
         calendar = self._build_calendar_policy(log, start_timestamp)
