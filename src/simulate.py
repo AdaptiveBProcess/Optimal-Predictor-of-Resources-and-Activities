@@ -24,7 +24,7 @@ def run_basic_simulation():
     To run this script:
     python src/simulate.py
     """
-    log = pd.read_csv("data/logs/PurchasingExample/PurchasingExample.csv")
+    log = pd.read_csv("data/logs/AcademicCredentials/AcademicCredentials_train.csv")
 
     initializer = DDPSInitializer()
 
@@ -41,10 +41,14 @@ def run_basic_simulation():
 
     setup: SimulationSetup = initializer.build(log, log_names, start_timestamp, time_unit)
     simulator = SimulatorEngine(setup)
-    event_log = simulator.simulate(max_cases=200, convert_to_absolute_time=True)
+    # get cases
+    ncases = len(log[log_names.case_id].unique())
+    print(f"Running basic DDPS simulation with {ncases} cases...")
+    event_log = simulator.simulate(max_cases=ncases, convert_to_absolute_time=True)
     #print(setup.routing_policy)
-    export_event_log_to_csv(event_log, "data/simulated_logs/PurchasingExample/PurchasingExample01.csv")
-    print(f"Basic DDPS simulation finished. Simulated event log exported to data/simulated_logs/PurchasingExample/PurchasingExample01.csv")
+    path = "data/simulated_logs/AcademicCredentials/AcademicCredentials_DDPS.csv"
+    export_event_log_to_csv(event_log, path)
+    print(f"Basic DDPS simulation finished. Simulated event log exported to {path}")
 
 if __name__ == "__main__":
     run_basic_simulation()

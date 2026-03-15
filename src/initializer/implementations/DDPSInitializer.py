@@ -6,6 +6,8 @@ from environment.simulator.implementations.empirical.SkillBasedResourcePolicy im
 from environment.simulator.implementations.empirical.EmpiricalArrivalPolicy import EmpiricalArrivalPolicy
 from environment.simulator.implementations.empirical.WeeklyCalendarPolicy import WeeklyCalendarPolicy
 from environment.simulator.policies import ArrivalPolicy, CalendarPolicy, ProcessingTimePolicy, RoutingPolicy
+from collections import defaultdict
+from environment.simulator.implementations.empirical.ExtraneousWaitingTimePolicy import ExtraneousWaitingTimePolicy
 from environment.simulator.policies.WaitingTImePolicy import WaitingTimePolicy
 from initializer.Initializer import Initializer
 from environment.simulator.core.setup import SimulationSetup
@@ -28,7 +30,7 @@ class DDPSInitializer(Initializer):
 
         routing = self._build_routing_policy(log)
         processing_times = self._build_processing_time_policy(log, time_unit)
-        waiting_times = self._build_waiting_time_policy(log, time_unit)
+        waiting_times = self._build_waiting_time_policy(log, time_unit, start_timestamp)
         calendar = self._build_calendar_policy(log, start_timestamp)
         arrivals = self._build_arrival_policy(log, time_unit)
         resource_list = self._build_resource_list(log)
@@ -120,10 +122,8 @@ class DDPSInitializer(Initializer):
                 continue
 
             duration = (end - start).total_seconds()  # convert to seconds
-            if time_unit == "minutes":
-                duration /= 60
-            elif time_unit == "hours":
-                duration /= 3600
+            duration = self._time_unit_conversion(duration, time_unit)
+
             if duration < 0:
                 continue
 
@@ -133,8 +133,68 @@ class DDPSInitializer(Initializer):
         return EmpiricalProcessingTimePolicy(durations_by_activity)
 
 
-    def _build_waiting_time_policy(self, log, time_unit: str) -> WaitingTimePolicy:
-        pass
+
+    def _build_waiting_time_policy(self, log, time_unit: str, start_timestamp: str) -> WaitingTimePolicy:
+        """
+        Estimates extraneous delays per activity by subtracting calendar
+        off-time from the raw inter-event gap.
+    
+            gap          = curr_start - prev_end          (wall-clock seconds)
+            calendar_off = off-duty seconds inside gap     (from availability matrix)
+            extraneous   = gap - calendar_off
+    
+        Only positive extraneous values survive — zero/negatives mean the gap
+        was fully explained by calendar unavailability or resource contention
+        (the latter emerges naturally from SimPy).
+        """    
+        extraneous_by_activity = defaultdict(list)
+    
+        calendar_policy = self._build_calendar_policy(log, start_timestamp)
+    
+        for _, group in log.groupby(self.log_names.case_id):
+            sorted_group = (
+                group.sort_values(by=self.log_names.start_timestamp)
+                .reset_index(drop=True)
+            )
+    
+            for i in range(1, len(sorted_group)):
+                prev_end = pd.to_datetime(
+                    sorted_group.loc[i - 1, self.log_names.end_timestamp]
+                )
+                curr_start = pd.to_datetime(
+                    sorted_group.loc[i, self.log_names.start_timestamp]
+                )
+    
+                if pd.isna(prev_end) or pd.isna(curr_start):
+                    continue
+    
+                gap_seconds = (curr_start - prev_end).total_seconds()
+                if gap_seconds <= 0:
+                    continue
+                
+                # Subtract calendar off-time from the raw gap
+                off_seconds = 0
+                for t in pd.date_range(prev_end, curr_start, freq="1min"):
+                    weekday = t.weekday()
+                    hour = t.hour
+                    if not calendar_policy.availability[weekday, hour]:
+                        off_seconds += 60  # 1 minute in seconds
+                
+                extraneous_seconds = max(0.0, gap_seconds- off_seconds)
+    
+                # Convert to simulation time unit
+                extraneous = self._time_unit_conversion(extraneous_seconds, time_unit)
+
+                activity = sorted_group.loc[i, self.log_names.activity]
+                extraneous_by_activity[activity].append(extraneous)
+       
+        # Filter percentile by activity to remove extreme outliers that may skew the distribution
+        for act, delays in extraneous_by_activity.items():
+            threshold = np.percentile(delays, 95)  # keep top 5% as extreme outliers
+            extraneous_by_activity[act] = [d for d in delays if d <= threshold]
+
+        return ExtraneousWaitingTimePolicy(extraneous_by_activity)
+
 
     def _build_calendar_policy(self, log, start_timestamp: str) -> CalendarPolicy:
         # 7 days x 24 hours
@@ -179,11 +239,7 @@ class DDPSInitializer(Initializer):
 
         # compute inter-arrival times
         inter_arrivals = np.diff(start_times)
-
-        if time_unit == "minutes":
-            inter_arrivals /= 60
-        elif time_unit == "hours":
-            inter_arrivals /= 3600
+        inter_arrivals = self._time_unit_conversion(inter_arrivals, time_unit)
 
         # filter invalid values
         inter_arrivals = inter_arrivals[inter_arrivals > 0]
@@ -220,3 +276,13 @@ class DDPSInitializer(Initializer):
     def _extract_resources(self, log):
         resources = set(log[self.log_names.resource].unique())
         return resources
+    
+    @staticmethod
+    def _time_unit_conversion(interval_seconds, time_unit):
+        interval_time = interval_seconds
+        if time_unit == "minutes":
+            return interval_time / 60
+        elif time_unit == "hours":
+            return interval_time / 3600
+
+        return interval_time

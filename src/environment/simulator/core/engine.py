@@ -37,10 +37,6 @@ class SimulatorEngine:
         
         self.env.process(self.case_generator(max_cases))
 
-    def _convert_event_log_to_absolute_time(self):
-        for event in self.event_log:
-            event["start"] = (self.start_timestamp + pd.to_timedelta(event["start"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            event["end"] = (self.start_timestamp + pd.to_timedelta(event["end"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
     def simulate(self, until: float = None, max_cases: int = None, convert_to_absolute_time: bool = False):
         """Standard SimPy simulation (Fast)"""
@@ -73,24 +69,6 @@ class SimulatorEngine:
 
         return completed
 
-    def get_case_needing_decision(self):
-        if self.pending_decisions:
-            return self.pending_decisions[0]["case"]
-        return None
-
-    def apply_decision(self, activity, resource):
-        """Resumes a paused case with the agent's choice"""
-        if not self.pending_decisions:
-            return False
-            
-        decision = self.pending_decisions.pop(0)
-        decision["callback"].succeed((activity, resource))
-        
-        # Reset the signal so we can wait for the next one
-        if not self.pending_decisions:
-            self.decision_event = self.env.event()
-            
-        return True
 
     def process_case(self, case: Case):
         case.start_time = self.env.now
@@ -129,28 +107,41 @@ class SimulatorEngine:
 
     def execute_activity(self, case: Case, activity, resource):
         simpy_resource = self.simpy_resources[resource.id]
-        
-        # Calendar wait logic
+    
+        # 1. Calendar wait — skip to next working slot
         next_time = self.setup.calendar_policy.next_working_time(self.env.now)
         if next_time > self.env.now:
             yield self.env.timeout(next_time - self.env.now)
-
+    
+        # 2. Extraneous delay — sampled BEFORE competing for the resource.
+        #    This represents waiting for external events (approvals, callbacks,
+        #    out-of-process dependencies) that are independent of resource availability.
+        #    Skip if no waiting_time_policy is configured (policy returns 0).
+        if self.setup.waiting_time_policy is not None:
+            extraneous = self.setup.waiting_time_policy.get_waiting_time(activity, resource)
+            if extraneous > 0:
+                yield self.env.timeout(extraneous)
+    
+        # 3. Resource contention — queue here if resource is busy (emergent from SimPy)
         process = self.env.active_process
         self.waiting_requests[process] = (case, activity)
-
+    
         with simpy_resource.request() as req:
             yield req
             del self.waiting_requests[process]
-
+    
+            # 4. Process the activity
             self.resource_current_activity[resource.id] = activity
             duration = self.setup.processing_time_policy.get_activity_duration(activity, resource)
             yield self.env.timeout(duration)
             self.resource_current_activity.pop(resource.id, None)
-
+    
             self.event_log.append({
                 "case": case.case_id, "activity": activity, "resource": resource.id,
                 "start": self.env.now - duration, "end": self.env.now
             })
+    
+
     
     def state(self):
         """Minimal state dictionary (no Pandas). Includes live resource assignment tracking."""
@@ -172,16 +163,6 @@ class SimulatorEngine:
             "internal_time": self.env.now,
         }
 
-
-    @property
-    def all_activities(self): return self._activities
-    @property
-    def all_resources(self): return self._resources
-    @property
-    def num_activities(self): return len(self._activities)
-    @property
-    def num_resources(self): return len(self._resources)
-
     def case_generator(self, max_cases=None):
         case_count = 0
         while max_cases is None or case_count < max_cases:
@@ -194,3 +175,42 @@ class SimulatorEngine:
     def _check_termination(self):
         if self.no_more_arrivals and self.active_cases == 0:
             if not self.all_done.triggered: self.all_done.succeed()
+
+
+    # Complementary Functions 
+
+    def get_case_needing_decision(self):
+        if self.pending_decisions:
+            return self.pending_decisions[0]["case"]
+        return None
+
+    def _convert_event_log_to_absolute_time(self):
+        for event in self.event_log:
+            event["start"] = (self.start_timestamp + pd.to_timedelta(event["start"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            event["end"] = (self.start_timestamp + pd.to_timedelta(event["end"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+    def apply_decision(self, activity, resource):
+        """Resumes a paused case with the agent's choice"""
+        if not self.pending_decisions:
+            return False
+            
+        decision = self.pending_decisions.pop(0)
+        decision["callback"].succeed((activity, resource))
+        
+        # Reset the signal so we can wait for the next one
+        if not self.pending_decisions:
+            self.decision_event = self.env.event()
+            
+        return True
+
+
+    @property
+    def all_activities(self): return self._activities
+    @property
+    def all_resources(self): return self._resources
+    @property
+    def num_activities(self): return len(self._activities)
+    @property
+    def num_resources(self): return len(self._resources)
+
+

@@ -106,7 +106,7 @@ opra/
     │   ├── simulator/
     │   │   ├── adapters/
     │   │   ├── core/
-    │   │   ├── models/
+    │   │   ├── implementations/
     │   │   └── policies/
     │   └── entities/
     │       ├── Activity.py

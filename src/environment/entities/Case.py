@@ -9,3 +9,7 @@ class Case:
     end_time: float = 0.0
     cycle_time: float = 0.0
     activity_history: list = field(default_factory=list)
+
+    @property
+    def current_activity(self):
+        return self.activity_history[-1] if self.activity_history else None
