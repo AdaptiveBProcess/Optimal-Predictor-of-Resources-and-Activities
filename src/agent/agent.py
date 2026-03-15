@@ -5,7 +5,7 @@ from torch.distributions import Categorical
 
 class PPOPolicy(nn.Module):
 
-    def __init__(self, state_dim, num_activities, num_resources):
+    def __init__(self, state_dim, num_activities, num_resources, activities_embedding_dim=32):
         super().__init__()
 
         hidden = 256
@@ -21,9 +21,9 @@ class PPOPolicy(nn.Module):
         self.activity_head = nn.Linear(hidden, num_activities)
 
         # Activity embedding for conditioning
-        self.activity_embedding = nn.Embedding(num_activities, 32)
+        self.activity_embedding = nn.Embedding(num_activities, activities_embedding_dim)
 
-        self.resource_head = nn.Linear(hidden + 32, num_resources)
+        self.resource_head = nn.Linear(hidden + activities_embedding_dim, num_resources)
 
         self.value_head = nn.Linear(hidden, 1)
 
@@ -116,15 +116,15 @@ class PPOPolicy(nn.Module):
 
 class PPOAgent:
     def __init__(self, state_dim, num_activities, num_resources, 
-                 lr=3e-4, gamma=0.99, K_epochs=4, eps_clip=0.2, device="cpu"):
+                 lr=3e-4, gamma=0.99, K_epochs=4, eps_clip=0.2, device="cpu", activities_embedding_dim=32):
         self.device = device
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
         
-        self.policy = PPOPolicy(state_dim, num_activities, num_resources).to(device)
+        self.policy = PPOPolicy(state_dim, num_activities, num_resources, activities_embedding_dim=activities_embedding_dim).to(device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
-        self.policy_old = PPOPolicy(state_dim, num_activities, num_resources).to(device)
+        self.policy_old = PPOPolicy(state_dim, num_activities, num_resources, activities_embedding_dim=activities_embedding_dim).to(device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()

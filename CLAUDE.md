@@ -22,7 +22,7 @@ pip install torch torchvision  # CPU
 All scripts must be run from the **project root** (not from `src/`), as they use relative paths like `data/logs/...`.
 
 ```bash
-# Basic DES simulation
+# Basic DDPS simulation
 python src/simulate.py
 
 # RL experiment (PPO agent)
@@ -44,7 +44,7 @@ OPRA is a **policy-based / hexagonal architecture** combining Discrete Event Sim
 Event log (CSV)
     -> Initializer.build()
     -> SimulationSetup (immutable config with all policies)
-    -> SimulatorEngine (SimPy-based DES)
+    -> SimulatorEngine (SimPy-based DDPS)
     -> event_log (list of dicts) -> CSV export
 ```
 
@@ -69,8 +69,8 @@ SimulatorEngine (RL mode)
 - Frozen dataclass holding all policies: `routing_policy`, `processing_time_policy`, `waiting_time_policy`, `arrival_policy`, `calendar_policy`, `resource_policy`.
 
 **`src/initializer/` — Initializers**
-- `DESInitializer`: builds all policies empirically from the event log (Markov routing, sampled processing times, weekly calendar grid).
-- `ParametricInitializer` (extends `DESInitializer`): overrides arrival (Exponential distribution) and processing time (Normal distribution) to use fitted parametric models.
+- `DDPSInitializer`: builds all policies empirically from the event log (Markov routing, sampled processing times, weekly calendar grid).
+- `ParametricInitializer` (extends `DDPSInitializer`): overrides arrival (Exponential distribution) and processing time (Normal distribution) to use fitted parametric models.
 - `_build_waiting_time_policy` is a stub returning `None` in both initializers.
 
 **`src/environment/environment.py` — `BusinessProcessEnvironment`**
@@ -159,6 +159,6 @@ Simulated logs are compared against the original using the `log-distance-measure
 
 ## Known issues / stubs
 
-- `DESInitializer._build_waiting_time_policy()` returns `None` — `WaitingTimePolicy` is not yet implemented.
+- `DDPSInitializer._build_waiting_time_policy()` returns `None` — `WaitingTimePolicy` is not yet implemented.
 - `ResourceAllocationPolicy` and `StoppingPolicy` are planned but not fully implemented.
 - The engine guards against infinite loops via `max_cases`, but zero-duration activities can still cause issues.

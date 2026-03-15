@@ -19,7 +19,7 @@ import pandas as pd
 import torch
 from contextlib import nullcontext
 
-from initializer.implementations.DESInitializer import DESInitializer
+from initializer.implementations.DDPSInitializer import DDPSInitializer
 from environment.simulator.core.setup import SimulationSetup
 from environment.core.env import BusinessProcessEnvironment
 from environment.core.mask import NucleusMaskFunction
@@ -175,7 +175,7 @@ def main():
     )
 
     # --- Build simulation setup ---
-    initializer = DESInitializer()
+    initializer = DDPSInitializer()
     start_timestamp = log[log_names.start_timestamp].min()
     time_unit = "seconds"
     setup: SimulationSetup = initializer.build(log, log_names, start_timestamp, time_unit)

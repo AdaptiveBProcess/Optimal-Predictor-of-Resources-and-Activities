@@ -19,7 +19,7 @@ import pandas as pd
 import torch
 
 from environment.simulator.adapters.event_log_to_csv import export_event_log_to_csv
-from initializer.implementations.DESInitializer import DESInitializer
+from initializer.implementations.DDPSInitializer import DDPSInitializer
 from environment.simulator.core.setup import SimulationSetup
 from environment.core.env import BusinessProcessEnvironment
 from environment.core.mask import NucleusMaskFunction
@@ -61,7 +61,7 @@ def run_evaluation():
     )
 
     # --- Setup ---
-    initializer = DESInitializer()
+    initializer = DDPSInitializer()
     start_timestamp = log[log_names.start_timestamp].min()
     time_unit = "seconds"
     setup: SimulationSetup = initializer.build(log, log_names, start_timestamp, time_unit)

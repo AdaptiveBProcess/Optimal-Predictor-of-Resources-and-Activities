@@ -2,13 +2,13 @@
 
 ## Overview
 
-OPRA (Optimizing Process Resource Allocation) is a hybrid simulation-optimization framework designed to improve business processes. At its core, it implements a **plug-and-play discrete-event process simulator** built on top of **SimPy**, driven primarily by **event logs**. It combines a data-driven Discrete Event Simulator (DES) with cutting-edge Machine Learning (ML) and Reinforcement Learning (RL) techniques to find optimal resource allocation policies.
+OPRA (Optimizing Process Resource Allocation) is a hybrid simulation-optimization framework designed to improve business processes. At its core, it implements a **plug-and-play discrete-event process simulator** built on top of **SimPy**, driven primarily by **event logs**. It combines a data-driven Discrete Event Simulator (DDPS) with cutting-edge Machine Learning (ML) and Reinforcement Learning (RL) techniques to find optimal resource allocation policies.
 
 The core idea is to:
 - Take an event log
 - Infer behavioral components (routing, timing, arrivals, calendars, etc.)
 - Assemble them into a simulation using interchangeable **policies**
-- Allow mixing paradigms: classic DES, empirical distributions, and ML-based models
+- Allow mixing paradigms: classic DDPS, empirical distributions, and ML-based models
 
 While providing a powerful "what-if" analysis tool to model existing business processes, the primary objective of this project is to leverage RL agents to explore and discover new, more efficient policies for allocating resources, routing cases, and managing temporal aspects of the process. The simulator is the core of this framework, providing the environment for the RL agent to learn and improve. It's intended to be easy to use for beginners (reasonable defaults) and highly extensible for advanced users and research use cases.
 
@@ -36,7 +36,7 @@ The simulator follows a **policy-based / hexagonal architecture**.
 
 -   **SimulatorEngine**: Orchestrates the simulation loop, owns the SimPy environment (`env`), executes cases and activities, and collects an event log as output.
 -   **SimulationSetup**: An immutable configuration object that assembles all policies and global settings, passed into the simulator at initialization.
--   **Initializer**: Builds a `SimulationSetup` from an event log, encapsulating all log-to-behavior inference. Different initializers may exist (DES, ML-based, hybrid).
+-   **Initializer**: Builds a `SimulationSetup` from an event log, encapsulating all log-to-behavior inference. Different initializers may exist (DDPS, ML-based, hybrid).
 
 The project is structured into several key components:
 *   `src/environment`: Contains the core simulation logic, including entities, the simulator engine, and policies.
@@ -115,7 +115,7 @@ opra/
     │       └── Resource.py
     ├── initializer/
     │   ├── implementations/
-    │   │   ├── DESInitializer.py
+    │   │   ├── DDPSInitializer.py
     │   │   └── ParametricInitializer.py
     │   └── Initializer.py
     ├── metrics/
@@ -148,7 +148,7 @@ opra/
 ### Running Simulations
 
 #### 1. Basic Discrete-Event Simulation
-To run a basic DES and generate a simulated event log:
+To run a basic DDPS and generate a simulated event log:
 ```bash
 python src/simulate.py
 ```

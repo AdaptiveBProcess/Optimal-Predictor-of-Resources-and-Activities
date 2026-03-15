@@ -2,9 +2,9 @@ import pandas as pd
 
 
 from environment.simulator.core.log_names import LogColumnNames
-from environment.simulator.models.empirical.SkillBasedResourcePolicy import SkillBasedResourcePolicy
-from environment.simulator.models.empirical.EmpiricalArrivalPolicy import EmpiricalArrivalPolicy
-from environment.simulator.models.empirical.WeeklyCalendarPolicy import WeeklyCalendarPolicy
+from environment.simulator.implementations.empirical.SkillBasedResourcePolicy import SkillBasedResourcePolicy
+from environment.simulator.implementations.empirical.EmpiricalArrivalPolicy import EmpiricalArrivalPolicy
+from environment.simulator.implementations.empirical.WeeklyCalendarPolicy import WeeklyCalendarPolicy
 from environment.simulator.policies import ArrivalPolicy, CalendarPolicy, ProcessingTimePolicy, RoutingPolicy
 from environment.simulator.policies.WaitingTImePolicy import WaitingTimePolicy
 from initializer.Initializer import Initializer
@@ -16,12 +16,12 @@ from collections import defaultdict, Counter
 
 import numpy as np
 
-from environment.simulator.models.empirical.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
-from environment.simulator.models.empirical.SecondOrderRoutingPolicy import SecondOrderRoutingPolicy
-from environment.simulator.models.empirical.EmpiricalProcessingTimePolicy import EmpiricalProcessingTimePolicy
+from environment.simulator.implementations.empirical.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
+from environment.simulator.implementations.empirical.SecondOrderRoutingPolicy import SecondOrderRoutingPolicy
+from environment.simulator.implementations.empirical.EmpiricalProcessingTimePolicy import EmpiricalProcessingTimePolicy
 
 
-class DESInitializer(Initializer):
+class DDPSInitializer(Initializer):
 
     def build(self, log, log_names: LogColumnNames, start_timestamp: str, time_unit: str) -> SimulationSetup:
         self.log_names = log_names

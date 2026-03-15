@@ -1,7 +1,7 @@
 import pandas as pd
 
 from environment.simulator.adapters.event_log_to_csv import export_event_log_to_csv
-from initializer.implementations.DESInitializer import DESInitializer
+from initializer.implementations.DDPSInitializer import DDPSInitializer
 from environment.simulator.core.setup import SimulationSetup
 from environment.simulator.core.log_names import LogColumnNames
 
@@ -16,7 +16,7 @@ np.random.seed(42)
 
 def run_basic_simulation():
     """
-    Runs a basic Discrete Event Simulation (DES) using the OPRA framework.
+    Runs a basic Discrete Event Simulation (DDPS) using the OPRA framework.
     This script initializes the simulator with data from a CSV event log,
     runs the simulation for a specified number of cases, and exports the
     resulting simulated event log to a new CSV file.
@@ -26,7 +26,7 @@ def run_basic_simulation():
     """
     log = pd.read_csv("data/logs/PurchasingExample/PurchasingExample.csv")
 
-    initializer = DESInitializer()
+    initializer = DDPSInitializer()
 
     log_names = LogColumnNames(
         case_id="case_id",
@@ -44,7 +44,7 @@ def run_basic_simulation():
     event_log = simulator.simulate(max_cases=200, convert_to_absolute_time=True)
     #print(setup.routing_policy)
     export_event_log_to_csv(event_log, "data/simulated_logs/PurchasingExample/PurchasingExample01.csv")
-    print(f"Basic DES simulation finished. Simulated event log exported to data/simulated_logs/PurchasingExample/PurchasingExample01.csv")
+    print(f"Basic DDPS simulation finished. Simulated event log exported to data/simulated_logs/PurchasingExample/PurchasingExample01.csv")
 
 if __name__ == "__main__":
     run_basic_simulation()

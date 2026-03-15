@@ -2,7 +2,7 @@ import random
 
 from environment.entities.Case import Case
 from environment.simulator.policies.RoutingPolicy import RoutingPolicy
-from environment.simulator.models.empirical.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
+from environment.simulator.implementations.empirical.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
 
 
 class SecondOrderRoutingPolicy(RoutingPolicy):

@@ -9,30 +9,30 @@ from environment.simulator.policies import ArrivalPolicy, CalendarPolicy, Proces
 from environment.simulator.policies.WaitingTImePolicy import WaitingTimePolicy
 
 # Reusing empirical policies for now
-from environment.simulator.models.empirical.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
-from environment.simulator.models.empirical.SkillBasedResourcePolicy import SkillBasedResourcePolicy
-from environment.simulator.models.empirical.WeeklyCalendarPolicy import WeeklyCalendarPolicy
+from environment.simulator.implementations.empirical.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
+from environment.simulator.implementations.empirical.SkillBasedResourcePolicy import SkillBasedResourcePolicy
+from environment.simulator.implementations.empirical.WeeklyCalendarPolicy import WeeklyCalendarPolicy
 
 # New parametric policies
-from environment.simulator.models.distributions.ExponentialArrivalPolicy import ExponentialArrivalPolicy
-from environment.simulator.models.distributions.LogNormalProcessingTimePolicy import LogNormalProcessingTimePolicy
+from environment.simulator.implementations.distributions.ExponentialArrivalPolicy import ExponentialArrivalPolicy
+from environment.simulator.implementations.distributions.LogNormalProcessingTimePolicy import LogNormalProcessingTimePolicy
 
-from initializer.implementations.DESInitializer import DESInitializer
+from initializer.implementations.DDPSInitializer import DDPSInitializer
 
 from collections import defaultdict # Import defaultdict at the top
 
 
-class ParametricInitializer(DESInitializer): # Inherit from DESInitializer to reuse common methods
+class ParametricInitializer(DDPSInitializer): # Inherit from DDPSInitializer to reuse common methods
 
     def build(self, log, log_names: LogColumnNames, start_timestamp: str, time_unit: str) -> SimulationSetup:
         self.log_names = log_names
 
-        routing = self._build_routing_policy(log) # Reuses from DESInitializer
+        routing = self._build_routing_policy(log) # Reuses from DDPSInitializer
         processing_times = self._build_processing_time_policy(log, time_unit) # Overridden
-        waiting_times = self._build_waiting_time_policy(log, time_unit) # Reuses from DESInitializer (passes for now)
-        calendar = self._build_calendar_policy(log, start_timestamp) # Reuses from DESInitializer
+        waiting_times = self._build_waiting_time_policy(log, time_unit) # Reuses from DDPSInitializer (passes for now)
+        calendar = self._build_calendar_policy(log, start_timestamp) # Reuses from DDPSInitializer
         arrivals = self._build_arrival_policy(log, time_unit) # Overridden
-        resource_list = self._build_resource_list(log) # Reuses from DESInitializer
+        resource_list = self._build_resource_list(log) # Reuses from DDPSInitializer
         resource_policy = SkillBasedResourcePolicy(resource_list)
         activities = sorted(self._extract_activities(log))
         return SimulationSetup(
