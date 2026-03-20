@@ -27,10 +27,13 @@ from environment.simulator.core.log_names import LogColumnNames
 from environment.simulator.core.engine import SimulatorEngine
 from agent.agent import PPOAgent
 
-from metrics.training_metrics import (
+from metrics.training.functions import (
+    compute_episode_metrics,
+)
+
+from metrics.training.training_metrics_tracker import (
     TrainingMetricsTracker,
     UpdateMetrics,
-    compute_episode_metrics,
 )
 
 
@@ -48,7 +51,7 @@ def parse_args():
     parser.add_argument("--run_name", type=str, default=None, help="Name for this run")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
     parser.add_argument("--top_p", type=float, default=0.9, help="Nucleus filtering for activity mask")
-    parser.add_argument("--top_k", type=int, default=2, help="Top-k filtering for activity mask")
+    parser.add_argument("--top_k", type=int, default=3, help="Top-k filtering for activity mask")
     return parser.parse_args()
 
 
@@ -134,8 +137,9 @@ def run_single_episode(
             )
 
             action = np.array([act_idx, res_idx])
+
             activity_type = simulator.all_activities[act_idx]
-            #print(case.case_id,activity_type)
+            # print(case.case_id,activity_type)
             next_obs, reward, terminated, truncated, info = env.step(action)
 
             # Store transition in agent buffer (only during training)
@@ -184,8 +188,8 @@ def main():
     # --- SLA threshold ---
     original_cycle_times = []
     for case_id, group in log.groupby(log_names.case_id):
-        st = pd.to_datetime(group[log_names.start_timestamp]).min()
-        et = pd.to_datetime(group[log_names.end_timestamp]).max()
+        st = pd.to_datetime(group[log_names.start_timestamp], format="mixed").min()
+        et = pd.to_datetime(group[log_names.end_timestamp], format="mixed").max()
         original_cycle_times.append((et - st).total_seconds())
     sla_threshold = np.percentile(original_cycle_times, args.percentile)
     baseline_cr = np.mean(np.array(original_cycle_times) < sla_threshold)

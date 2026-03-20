@@ -64,7 +64,7 @@ class NucleusMaskFunction(ActivityMaskFunction):
         Nucleus probability threshold.  Activities are included in decreasing
         probability order until cumulative probability >= p.  Set to 1.0 to
         disable nucleus filtering.
-    end_threshold : float
+    p_min_end : float
         Minimum branching probability for the END (None) action to be allowed.
         If the probability of None is below this threshold, it is masked out
         and the agent must continue the trace.  This prevents the agent from
@@ -77,29 +77,38 @@ class NucleusMaskFunction(ActivityMaskFunction):
         self,
         k: Optional[int] = None,
         p: float = 0.9,
-        end_threshold: float = 0.5,
+        p_min_end: float = 0.2,
     ):
         self.k = k
         self.p = p
-        self.end_threshold = end_threshold
+        self.p_min_end = p_min_end
+
 
     def compute(self, ctx: ActivityMaskContext) -> np.ndarray:
         num_activities = len(ctx.all_activities)
         mask = np.zeros(num_activities, dtype=np.float32)
 
+        
         if not ctx.probabilities:
             mask[-1] = 1.0  # only END is allowed
             return mask
 
-        # ── Step 0: Filter END (None) based on threshold ────────────
+        # ── Step 0: Filter END (None) based on argmax OR threshold ──
         end_prob = ctx.probabilities.get(None, 0.0)
         filtered_probs = {}
+
+        # Determine if END should be allowed
+        allow_end = False
+        if end_prob > 0:
+            non_end_probs = [v for k, v in ctx.probabilities.items() if k is not None]
+            max_non_end = max(non_end_probs) if non_end_probs else 0.0
+            # Allow END if it's the most probable transition OR above threshold
+            allow_end = (end_prob > max_non_end) or (end_prob >= self.p_min_end)
+
         for act_name, prob in ctx.probabilities.items():
             if act_name is None:
-                # Only include END if its probability meets the threshold
-                if end_prob >= self.end_threshold:
+                if allow_end:
                     filtered_probs[act_name] = prob
-                # Otherwise: skip it, agent must continue
             else:
                 filtered_probs[act_name] = prob
 
@@ -158,7 +167,6 @@ class NucleusMaskFunction(ActivityMaskFunction):
                 binary_mask[-1] = 1.0
 
         return binary_mask
-
 
 class SkillBasedMaskFunction(ResourceMaskFunction):
     """

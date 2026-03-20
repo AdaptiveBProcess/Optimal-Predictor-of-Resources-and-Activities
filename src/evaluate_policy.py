@@ -27,7 +27,7 @@ from environment.simulator.core.log_names import LogColumnNames
 from environment.simulator.core.engine import SimulatorEngine
 from agent.agent import PPOAgent
 
-from metrics.evaluation_metrics import PolicyEvaluator
+from metrics.evaluation.policy_evaluator import PolicyEvaluator
 from train import run_single_episode, load_checkpoint
 
 
@@ -74,8 +74,8 @@ def run_evaluation():
     # --- SLA threshold ---
     original_cycle_times = []
     for case_id, group in log.groupby(log_names.case_id):
-        st = pd.to_datetime(group[log_names.start_timestamp]).min()
-        et = pd.to_datetime(group[log_names.end_timestamp]).max()
+        st = pd.to_datetime(group[log_names.start_timestamp], format="mixed").min()
+        et = pd.to_datetime(group[log_names.end_timestamp], format="mixed").max()
         original_cycle_times.append((et - st).total_seconds())
     sla_threshold = np.percentile(original_cycle_times, args.percentile)
 
