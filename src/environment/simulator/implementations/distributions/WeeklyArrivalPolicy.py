@@ -38,3 +38,22 @@ class WeeklyArrivalPolicy(ArrivalPolicy):
         # Convert rate to time-unit scale and sample exponential inter-arrival
         rate_per_unit = rate / (3600 / seconds_per_unit)
         return float(np.random.exponential(1.0 / rate_per_unit))
+
+    def __str__(self) -> str:
+        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        bars = " ▁▂▃▄▅▆▇█"
+        max_rate = self.rate_matrix.max()
+        lines = ["WeeklyArrivalPolicy"]
+
+        for d in range(7):
+            row = []
+            for h in range(24):
+                rate = self.rate_matrix[d, h]
+                if max_rate > 0:
+                    idx = int(round(rate / max_rate * (len(bars) - 1)))
+                else:
+                    idx = 0
+                row.append(bars[idx])
+            lines.append(f"{days[d]}: " + " ".join(row))
+
+        return "\n".join(lines)

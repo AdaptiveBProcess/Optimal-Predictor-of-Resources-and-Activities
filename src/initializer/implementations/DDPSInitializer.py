@@ -310,13 +310,10 @@ class DDPSInitializer(Initializer):
                 extraneous = self._time_unit_conversion(extraneous_sec, time_unit)
                 extraneous_by_activity[acts[idx]].append(extraneous)
 
-        # ── IQR-based outlier filter (Q3 + 3×IQR fence) ─────────────
-        for act in extraneous_by_activity:
-            delays = extraneous_by_activity[act]
-            if delays:
-                q1, q3 = np.percentile(delays, [25, 75])
-                threshold = q3 + 40 * (q3 - q1)
-                extraneous_by_activity[act] = [d for d in delays if d <= threshold]
+        # p99.5 threshold to filter out extreme outliers (could be tuned or removed)
+        for act, delays in extraneous_by_activity.items():
+            threshold = np.percentile(delays, 99.5)
+            extraneous_by_activity[act] = [d for d in delays if d <= threshold]
 
         return ExtraneousWaitingTimePolicy(extraneous_by_activity)
 
@@ -356,6 +353,7 @@ class DDPSInitializer(Initializer):
         inter_arrivals = inter_arrivals[inter_arrivals > 0]
 
         return EmpiricalArrivalPolicy(inter_arrivals.tolist())
+    
     def _build_arrival_policy(self, log, time_unit: str, start_timestamp: str) -> ArrivalPolicy:
         case_starts = (
             log.groupby(self.log_names.case_id)[self.log_names.start_timestamp]
