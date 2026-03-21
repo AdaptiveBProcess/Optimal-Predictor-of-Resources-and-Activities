@@ -7,7 +7,7 @@ class EmpiricalArrivalPolicy(ArrivalPolicy):
     def __init__(self, inter_arrival_times):
         self.inter_arrivals = inter_arrival_times
 
-    def get_next_arrival_time(self) -> float:
+    def get_next_arrival_time(self, current_time: float) -> float:
         return random.choice(self.inter_arrivals)
 
     def __str__(self):

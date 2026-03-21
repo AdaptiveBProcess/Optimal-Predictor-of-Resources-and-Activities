@@ -108,12 +108,7 @@ class SimulatorEngine:
     def execute_activity(self, case: Case, activity, resource):
         simpy_resource = self.simpy_resources[resource.id]
     
-        # 1. Calendar wait — skip to next working slot
-        next_time = self.setup.calendar_policy.next_working_time(self.env.now)
-        if next_time > self.env.now:
-            yield self.env.timeout(next_time - self.env.now)
-    
-        # 2. Extraneous delay — sampled BEFORE competing for the resource.
+        # 1. Extraneous delay — sampled BEFORE competing for the resource.
         #    This represents waiting for external events (approvals, callbacks,
         #    out-of-process dependencies) that are independent of resource availability.
         #    Skip if no waiting_time_policy is configured (policy returns 0).
@@ -121,6 +116,11 @@ class SimulatorEngine:
             extraneous = self.setup.waiting_time_policy.get_waiting_time(activity, resource)
             if extraneous > 0:
                 yield self.env.timeout(extraneous)
+
+        # 2. Calendar wait — skip to next working slot
+        next_time = self.setup.calendar_policy.next_working_time(self.env.now)
+        if next_time > self.env.now:
+            yield self.env.timeout(next_time - self.env.now)
     
         # 3. Resource contention — queue here if resource is busy (emergent from SimPy)
         process = self.env.active_process
@@ -166,7 +166,7 @@ class SimulatorEngine:
     def case_generator(self, max_cases=None):
         case_count = 0
         while max_cases is None or case_count < max_cases:
-            yield self.env.timeout(self.setup.arrival_policy.get_next_arrival_time())
+            yield self.env.timeout(self.setup.arrival_policy.get_next_arrival_time(self.env.now))
             case_count += 1
             self.env.process(self.process_case(Case(case_id=f"case_{case_count}", events=[])))
         self.no_more_arrivals = True

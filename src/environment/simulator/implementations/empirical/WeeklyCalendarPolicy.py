@@ -3,11 +3,12 @@ from environment.simulator.policies.CalendarPolicy import CalendarPolicy
 
 class WeeklyCalendarPolicy(CalendarPolicy):
 
-    def __init__(self, availability, start_timestamp: str):
+    def __init__(self, availability, raw_matrix, start_timestamp: str):
         """
         availability: np.ndarray[7, 24] of bool
         """
         self.availability = availability
+        self.raw_matrix = raw_matrix
         self.start_ts = datetime.fromisoformat(start_timestamp).timestamp()
 
     def is_working_time(self, t: float) -> bool:

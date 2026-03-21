@@ -5,6 +5,8 @@ from collections import defaultdict, Counter
 from environment.simulator.core.log_names import LogColumnNames
 from environment.simulator.implementations.empirical.SkillBasedResourcePolicy import SkillBasedResourcePolicy
 from environment.simulator.implementations.empirical.EmpiricalArrivalPolicy import EmpiricalArrivalPolicy
+from environment.simulator.implementations.distributions.WeeklyArrivalPolicy import WeeklyArrivalPolicy
+
 from environment.simulator.implementations.empirical.WeeklyCalendarPolicy import WeeklyCalendarPolicy
 from environment.simulator.policies import ArrivalPolicy, CalendarPolicy, ProcessingTimePolicy, RoutingPolicy
 from environment.simulator.implementations.empirical.ExtraneousWaitingTimePolicy import ExtraneousWaitingTimePolicy
@@ -15,6 +17,7 @@ from environment.entities.Resource import Resource
 from environment.simulator.implementations.empirical.ProbabilisticRoutingPolicy import ProbabilisticRoutingPolicy
 from environment.simulator.implementations.empirical.SecondOrderRoutingPolicy import SecondOrderRoutingPolicy
 from environment.simulator.implementations.empirical.EmpiricalProcessingTimePolicy import EmpiricalProcessingTimePolicy
+from environment.simulator.implementations.empirical.EmpiricalResourceActivityProcessingTimePolicy import EmpiricalResourceActivityProcessingTimePolicy
 
 
 class DDPSInitializer(Initializer):
@@ -35,8 +38,8 @@ class DDPSInitializer(Initializer):
         routing = self._build_routing_policy(log)
         print("First-order Markov routing policy built.")
 
-        processing_times = self._build_processing_time_policy(log, time_unit)
-        print("Empirical processing time policy built.")
+        processing_times = self._build_resource_activity_processing_time_policy(log, time_unit)
+        print("Empirical resource-activity processing time policy built.")
 
         # ── Build calendar ONCE, reuse in waiting time policy ────────
         calendar = self._build_calendar_policy(log, start_timestamp)
@@ -45,8 +48,8 @@ class DDPSInitializer(Initializer):
         waiting_times = self._build_waiting_time_policy(log, time_unit, calendar)
         print("Empirical extraneous waiting time policy built.")
 
-        arrivals = self._build_arrival_policy(log, time_unit)
-        print("Empirical arrival policy built.")
+        arrivals = self._build_arrival_policy(log, time_unit, start_timestamp)
+        print("Empirical Weekly arrival policy built.")
 
         resource_list = self._build_resource_list(log)
         print("Skill-based resource policy built.")
@@ -183,6 +186,30 @@ class DDPSInitializer(Initializer):
 
         return EmpiricalProcessingTimePolicy(durations_by_activity)
 
+    def _build_resource_activity_processing_time_policy(self, log, time_unit: str) -> ProcessingTimePolicy:
+        """
+        Builds an EmpiricalResourceActivityProcessingTimePolicy stratified by
+        (activity, resource) pair, with an activity-only fallback.
+        """
+        col_res = self.log_names.resource
+        starts = log[self.log_names.start_timestamp]
+        ends = log[self.log_names.end_timestamp]
+
+        durations_sec = (ends - starts).dt.total_seconds()
+        valid = starts.notna() & ends.notna() & (durations_sec >= 0)
+
+        activities = log.loc[valid, self.log_names.activity].values
+        resources = log.loc[valid, col_res].values
+        durations = self._time_unit_conversion(durations_sec[valid].values, time_unit)
+
+        by_pair = defaultdict(list)
+        by_activity = defaultdict(list)
+        for act, res, dur in zip(activities, resources, durations):
+            by_pair[(act, res)].append(dur)
+            by_activity[act].append(dur)
+
+        return EmpiricalResourceActivityProcessingTimePolicy(dict(by_pair), dict(by_activity))
+
     # ─────────────────────────────────────────────────────────────────
     # WAITING TIMES — analytical off-time instead of minute-by-minute loop
     # ─────────────────────────────────────────────────────────────────
@@ -198,7 +225,8 @@ class DDPSInitializer(Initializer):
         col_end = self.log_names.end_timestamp
         col_act = self.log_names.activity
 
-        availability = calendar_policy.availability  # shape (7, 24) bool
+        threshold = np.percentile(calendar_policy.raw_matrix.flatten(), 20)
+        availability = calendar_policy.raw_matrix > threshold    # shape (7, 24) bool
 
         # ── Precompute per-weekday off-hours count ───────────────────
         # off_hours_per_day[d] = number of OFF hours on weekday d
@@ -278,15 +306,16 @@ class DDPSInitializer(Initializer):
                 cs = pd.Timestamp(curr_starts[idx])
 
                 off = _off_seconds_in_gap(pe, cs)
-                extraneous_sec = max(0.0, gap - off)
+                extraneous_sec = max(0.0, gap - off*0.01)
                 extraneous = self._time_unit_conversion(extraneous_sec, time_unit)
                 extraneous_by_activity[acts[idx]].append(extraneous)
 
-        # ── 95th-percentile outlier filter ───────────────────────────
+        # ── IQR-based outlier filter (Q3 + 3×IQR fence) ─────────────
         for act in extraneous_by_activity:
             delays = extraneous_by_activity[act]
             if delays:
-                threshold = np.percentile(delays, 95)
+                q1, q3 = np.percentile(delays, [25, 75])
+                threshold = q3 + 40 * (q3 - q1)
                 extraneous_by_activity[act] = [d for d in delays if d <= threshold]
 
         return ExtraneousWaitingTimePolicy(extraneous_by_activity)
@@ -303,22 +332,18 @@ class DDPSInitializer(Initializer):
 
         calendar_counts = np.zeros((7, 24), dtype=np.float64)
         np.add.at(calendar_counts, (weekdays, hours), 1)
+        
+        non_zero = calendar_counts > 0
+        # Global 20th-percentile threshold on raw counts (no per-row normalisation)
+        threshold = np.percentile(calendar_counts[non_zero].flatten(), 20)
+        availability = calendar_counts > threshold
 
-        # Normalise per weekday
-        row_sums = calendar_counts.sum(axis=1, keepdims=True)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            calendar_probs = np.where(row_sums > 0, calendar_counts / row_sums, 0.0)
-
-        percentile = 25
-        threshold = np.percentile(calendar_probs.flatten(), percentile)
-        availability = calendar_probs > threshold
-
-        return WeeklyCalendarPolicy(availability, start_timestamp)
+        return WeeklyCalendarPolicy(availability, calendar_counts, start_timestamp)
 
     # ─────────────────────────────────────────────────────────────────
     # ARRIVALS — minor cleanup (already efficient)
     # ─────────────────────────────────────────────────────────────────
-    def _build_arrival_policy(self, log, time_unit: str) -> ArrivalPolicy:
+    def _build_naive_arrival_policy(self, log, time_unit: str) -> ArrivalPolicy:
         case_starts = (
             log.groupby(self.log_names.case_id)[self.log_names.start_timestamp]
             .min()
@@ -331,7 +356,24 @@ class DDPSInitializer(Initializer):
         inter_arrivals = inter_arrivals[inter_arrivals > 0]
 
         return EmpiricalArrivalPolicy(inter_arrivals.tolist())
+    def _build_arrival_policy(self, log, time_unit: str, start_timestamp: str) -> ArrivalPolicy:
+        case_starts = (
+            log.groupby(self.log_names.case_id)[self.log_names.start_timestamp]
+            .min()
+            .dropna()
+        )
+        timestamps = pd.to_datetime(case_starts)
 
+        # Build a 7x24 arrival rate matrix (arrivals per hour per slot)
+        rate_matrix = np.zeros((7, 24), dtype=np.float64)
+        np.add.at(rate_matrix, (timestamps.dt.weekday.values, timestamps.dt.hour.values), 1)
+
+        # Normalize by the number of weeks observed to get a per-week, per-slot rate
+        total_hours = (timestamps.max() - timestamps.min()).total_seconds() / 3600
+        n_weeks = max(1.0, total_hours / (7 * 24))
+        rate_matrix /= n_weeks
+
+        return WeeklyArrivalPolicy(rate_matrix, start_timestamp, time_unit)
     # ─────────────────────────────────────────────────────────────────
     # RESOURCES — vectorised groupby instead of iterrows()
     # ─────────────────────────────────────────────────────────────────
