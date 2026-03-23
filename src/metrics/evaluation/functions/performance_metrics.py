@@ -14,9 +14,9 @@ def compute_performance_metrics(
     ref_cycle_times: np.ndarray,
     sla_thresholds: Dict[str, float],
     ref_compliance_rates: Dict[str, float],
-    case_col: str = "case",
-    start_col: str = "start",
-    end_col: str = "end",
+    case_col: str = "case_id",
+    start_col: str = "start_time",
+    end_col: str = "end_time",
     resource_col: str = "resource",
 ) -> PerformanceResult:
     """Compute all performance metrics for one simulated log."""

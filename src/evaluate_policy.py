@@ -41,8 +41,8 @@ def parse_args():
     parser.add_argument("--policy_name", type=str, default="DRL-AR")
     parser.add_argument("--log_name", type=str, default="LoanApp")
     parser.add_argument("--output_dir", type=str, default="data/evaluation_results")
-    parser.add_argument("--top_p", type=float, default=0.9)
-    parser.add_argument("--top_k", type=int, default=3)
+    parser.add_argument("--top_p", type=float, default=1)
+    parser.add_argument("--top_k", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args()
 
@@ -96,19 +96,17 @@ def run_evaluation():
         simulator,
         sla_threshold=sla_threshold,
         max_cases=max_cases,
-        activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p),
+        activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p, p_min_end=0.0),
     )
     agent = PPOAgent(
         state_dim=env.observation_space.shape[0],
         num_activities=simulator.num_activities,
         num_resources=simulator.num_resources,
     )
-    print(f"simulator.num_activities={simulator.num_activities}, simulator.num_resources={simulator.num_resources}")
-    raise NotImplementedError("Checkpoint loading needs to be updated for new agent architecture")
     load_checkpoint(agent, args.checkpoint)
 
     # --- Run K evaluation simulations ---
-    sim_log_dir = os.path.join(args.output_dir, args.policy_name, args.log_name, "simulated_logs")
+    sim_log_dir = os.path.join(args.output_dir, args.log_name, args.policy_name, "simulated_logs")
     os.makedirs(sim_log_dir, exist_ok=True)
 
     simulated_log_paths = []
@@ -127,7 +125,7 @@ def run_evaluation():
             simulator_k,
             sla_threshold=sla_threshold,
             max_cases=max_cases,
-            activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p),
+            activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p, p_min_end=0.0),
         )
 
         t0 = time.time()
@@ -166,7 +164,8 @@ def run_evaluation():
 
     # --- Print and save ---
     evaluator.print_results(results)
-    evaluator.save_results(results, args.output_dir)
+    policy_dir = os.path.join(args.output_dir, args.log_name, args.policy_name)
+    evaluator.save_results(results, policy_dir)
 
     print(f"\nEvaluation complete. Results in: {args.output_dir}")
 

@@ -45,11 +45,11 @@ def compute_similarity_metrics(
         end_time=_orig_cols.get("end", "end_time"),
     )
     simulated_ids = EventLogIDs(
-        case="case",
+        case="case_id",
         activity="activity",
         resource="resource",
-        start_time="start",
-        end_time="end",
+        start_time="start_time",
+        end_time="end_time",
     )
 
     for col in [original_ids.start_time, original_ids.end_time]:

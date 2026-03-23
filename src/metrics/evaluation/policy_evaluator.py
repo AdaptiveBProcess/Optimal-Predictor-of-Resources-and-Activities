@@ -54,9 +54,9 @@ class PolicyEvaluator:
     def evaluate_single_log(
         self,
         sim_log_path: str,
-        sim_case_col: str = "case",
-        sim_start_col: str = "start",
-        sim_end_col: str = "end",
+        sim_case_col: str = "case_id",
+        sim_start_col: str = "start_time",
+        sim_end_col: str = "end_time",
         sim_resource_col: str = "resource",
     ) -> Tuple[PerformanceResult, SimilarityResult]:
         """Evaluate one simulated log file."""
@@ -99,7 +99,7 @@ class PolicyEvaluator:
     def save_results(self, results: AggregatedResults, output_dir: str):
         """Save aggregated results to JSON."""
         os.makedirs(output_dir, exist_ok=True)
-        path = os.path.join(output_dir, f"{results.policy_name}_{results.log_name}_results.json")
+        path = os.path.join(output_dir, "results.json")
         with open(path, "w") as f:
             json.dump(asdict(results), f, indent=2, default=str)
         print(f"  Results saved: {path}")

@@ -50,21 +50,22 @@ def parse_args():
     parser.add_argument("--update_every", type=int, default=1, help="PPO update every N episodes")
     parser.add_argument("--run_name", type=str, default=None, help="Name for this run")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
-    parser.add_argument("--top_p", type=float, default=0.9, help="Nucleus filtering for activity mask")
+    parser.add_argument("--top_p", type=float, default=0.8, help="Nucleus filtering for activity mask")
     parser.add_argument("--top_k", type=int, default=3, help="Top-k filtering for activity mask")
+    parser.add_argument("--p_min_end", type=float, default=0.1, help="Minimum end probability for activity mask")
     return parser.parse_args()
 
 
 def compute_cycle_times_from_log(event_log: list, time_unit: str = "seconds") -> list:
     """
     Compute cycle times from the simulator's event_log (list of dicts).
-    Each dict has keys: case, activity, resource, start, end (numeric SimPy times).
+    Each dict has keys: case_id, activity, resource, start_time, end_time (numeric SimPy times).
     """
     cases = {}
     for event in event_log:
-        cid = event["case"]
-        start = event["start"]
-        end = event["end"]
+        cid = event["case_id"]
+        start = event["start_time"]
+        end = event["end_time"]
         if cid not in cases:
             cases[cid] = {"min_start": start, "max_end": end}
         else:
@@ -95,6 +96,7 @@ def load_checkpoint(agent: PPOAgent, path: str) -> int:
     """Load model weights. Returns the episode number."""
     checkpoint = torch.load(path, map_location=agent.device, weights_only=False)
     agent.policy.load_state_dict(checkpoint["policy_state_dict"])
+    agent.policy_old.load_state_dict(checkpoint["policy_state_dict"])
     agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     print(f"  Checkpoint loaded from: {path} (episode {checkpoint['episode']})")
     return checkpoint["episode"]
@@ -201,7 +203,7 @@ def main():
         simulator,
         sla_threshold=sla_threshold,
         max_cases=args.max_cases,
-        activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p),
+        activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p, p_min_end=args.p_min_end),
     )
 
     # --- Agent ---

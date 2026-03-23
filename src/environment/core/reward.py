@@ -52,25 +52,25 @@ class SLARewardFunction(RewardFunction):
 
     Intermediate states (case not yet completed):
         If ct < T:
-            R(σ) = K * (1 - ct / T)
+            R(σ) = K/1000 * (1 - ct / T)
 
             The reward decreases linearly from +K (at ct → 0)
             to 0 when the cycle time approaches the SLA threshold.
 
         If ct ≥ T:
-            R(σ) = -K * (ct / T)
+            R(σ) = -K/1000 * (ct / T)
 
             The penalty grows linearly as the cycle time exceeds
             the SLA threshold.
 
     Terminal states (case completed):
         If ct < T:
-            R(σ) = +K
+            R(σ) += +K
 
             The case finished within the SLA.
 
         If ct ≥ T:
-            R(σ) = -K
+            R(σ) += -K
 
             The case violated the SLA.
 
@@ -90,9 +90,9 @@ class SLARewardFunction(RewardFunction):
         K = self.K
         # Intermediate: directional signal at each step
         if ct < T:
-            reward = (K/100) * (1.0 - ct / T)  # Linear: 1→0 as you approach T
+            reward = (K/1000) * (1.0 - ct / T)  # Linear: 1→0 as you approach T
         else:
-            reward = -(K/100) * (ct / T)        # Increasingly negative past T
+            reward = -(K/10) * (ct / T)        # Increasingly negative past T
 
         # Terminal: case completed
         if ctx.is_completed:

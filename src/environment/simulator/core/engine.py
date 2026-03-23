@@ -12,8 +12,13 @@ class SimulatorEngine:
         
         # Simple Cache: Get activities and resources from setup
         self._activities = sorted(self.setup.activities) + [None]
+        # for i, a in enumerate(self._activities):
+        #     print(f"Activity index {i}: {a}")
+
         self._resources = self.setup.resources
-        
+
+        # for i, r in enumerate(self._resources):
+        #     print(f"Resource index {i}: {r.name}")
         self.reset()
 
     def reset(self, max_cases=None):
@@ -137,8 +142,8 @@ class SimulatorEngine:
             self.resource_current_activity.pop(resource.id, None)
     
             self.event_log.append({
-                "case": case.case_id, "activity": activity, "resource": resource.id,
-                "start": self.env.now - duration, "end": self.env.now
+                "case_id": case.case_id, "activity": activity, "resource": resource.id,
+                "start_time": self.env.now - duration, "end_time": self.env.now
             })
     
 
@@ -186,8 +191,8 @@ class SimulatorEngine:
 
     def _convert_event_log_to_absolute_time(self):
         for event in self.event_log:
-            event["start"] = (self.start_timestamp + pd.to_timedelta(event["start"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            event["end"] = (self.start_timestamp + pd.to_timedelta(event["end"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            event["start_time"] = (self.start_timestamp + pd.to_timedelta(event["start_time"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            event["end_time"] = (self.start_timestamp + pd.to_timedelta(event["end_time"], unit='seconds')).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
     def apply_decision(self, activity, resource):
         """Resumes a paused case with the agent's choice"""

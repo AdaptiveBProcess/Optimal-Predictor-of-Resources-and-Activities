@@ -80,7 +80,13 @@ class PPOAgent:
 
         # Normalizing the rewards
         rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
+
+        rewards_std = rewards.std()
+        if rewards_std > 0.1:
+            rewards = (rewards - rewards.mean()) / (rewards_std + 1e-7)
+        else:
+            print("Warning: Low reward variance, skipping normalization to avoid amplifying noise.")
+            rewards = rewards - rewards.mean()  # center only; do not amplify noise
 
         # convert list to tensor
         old_states = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(self.device)
