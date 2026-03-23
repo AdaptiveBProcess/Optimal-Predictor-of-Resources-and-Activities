@@ -103,6 +103,8 @@ def run_evaluation():
         num_activities=simulator.num_activities,
         num_resources=simulator.num_resources,
     )
+    print(f"simulator.num_activities={simulator.num_activities}, simulator.num_resources={simulator.num_resources}")
+    raise NotImplementedError("Checkpoint loading needs to be updated for new agent architecture")
     load_checkpoint(agent, args.checkpoint)
 
     # --- Run K evaluation simulations ---

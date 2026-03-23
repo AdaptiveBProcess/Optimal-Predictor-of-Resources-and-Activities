@@ -215,3 +215,5 @@ RIMS_DRL/
 .vscode/
 
 data/**
+
+evaluation_commands.txt

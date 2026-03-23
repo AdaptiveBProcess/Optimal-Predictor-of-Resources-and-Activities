@@ -173,10 +173,6 @@ python src/train.py \
     --run_name experiment_01
 ```
 
-```bash
-python src/train.py --log_path data/logs/LoanApp/LoanApp.csv --episodes 200 --max_cases 50 --percentile 90 --lr 3e-4 --save_every 10 --run_name experiment_01
-```
-
 
 Key arguments:
 - `--episodes`: Number of training episodes (default: 100)
@@ -207,9 +203,6 @@ python src/evaluate_policy.py \
     --K 10 \
     --policy_name DRL-AR \
     --log_name LoanApp
-```
-```bash
-python src/evaluate_policy.py --checkpoint data/training_runs/experiment_01/checkpoints/best_model.pt --log_path data/logs/LoanApp/LoanApp.csv --K 10 --policy_name DRL-AR --log_name LoanApp
 ```
 
 This runs K greedy (deterministic) simulations, exports each as a CSV with absolute timestamps, and computes:
