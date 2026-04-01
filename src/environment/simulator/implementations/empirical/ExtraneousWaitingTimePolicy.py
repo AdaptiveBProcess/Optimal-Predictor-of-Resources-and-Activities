@@ -1,55 +1,49 @@
-import numpy as np
 import random
-import pandas as pd
-from collections import defaultdict
 
-from environment.entities import Case
+import numpy as np
+
 from environment.simulator.policies.WaitingTImePolicy import WaitingTimePolicy
+
 
 class ExtraneousWaitingTimePolicy(WaitingTimePolicy):
     """
-    Empirical extraneous delay policy.
+    Empirical extraneous waiting time policy stratified by (activity, resource)
+    pair, with an activity-only fallback — mirrors the structure of
+    EmpiricalResourceActivityProcessingTimePolicy.
 
-    For each activity, the extraneous delay is estimated as:
-
-        gap            = curr_start - prev_end
-        calendar_off   = off-duty seconds inside that gap (from WeeklyCalendarPolicy)
-        extraneous     = gap - calendar_off
-
-    Only positive extraneous values are kept — zero/negative values mean
-    the gap was fully explained by calendar or contention (SimPy handles those).
-
-    At simulation time, the sampled delay is injected BEFORE the resource
-    request in execute_activity, matching the Prosimos timer-event pattern.
+    Delays are the raw inter-event gaps (prev_end → curr_start) within a case,
+    filtered to positive values and capped at p99.5 by the initializer.
     """
 
     def __init__(
         self,
-        extraneous_by_activity: dict,   # {activity: [delay_in_time_units, ...]}
+        samples_by_activity_resource: dict,  # {(activity, resource_id): [float, ...]}
+        samples_by_activity: dict,           # {activity: [float, ...]}
         fallback_delay: float = 0.0,
     ):
-        self._distributions: dict = {}
+        self._by_pair = samples_by_activity_resource
+        self._by_activity = samples_by_activity
         self._fallback = fallback_delay
 
-        for activity, delays in extraneous_by_activity.items():
-            clean = [d for d in delays if d > 0]
-            if clean:
-                self._distributions[activity] = clean
-
     def get_waiting_time(self, activity, resource) -> float:
-        pool = self._distributions.get(activity)
-        if not pool:
-            return self._fallback
-        return float(random.choice(pool))
+        resource_id = resource.id if resource is not None else None
+        key = (activity, resource_id)
+
+        if key in self._by_pair and self._by_pair[key]:
+            return float(random.choice(self._by_pair[key]))
+
+        if activity in self._by_activity and self._by_activity[activity]:
+            return float(random.choice(self._by_activity[activity]))
+
+        return self._fallback
 
     # ------------------------------------------------------------------ #
     # Diagnostics                                                          #
     # ------------------------------------------------------------------ #
 
-    def __str__(self) -> dict:
-        """Return per-activity stats for inspection."""
+    def __str__(self) -> str:
         out = {}
-        for act, delays in self._distributions.items():
+        for act, delays in self._by_activity.items():
             arr = np.array(delays)
             out[act] = {
                 "n": len(arr),

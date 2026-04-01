@@ -217,71 +217,18 @@ class DDPSInitializer(Initializer):
         self, log, time_unit: str, calendar_policy: CalendarPolicy
     ) -> WaitingTimePolicy:
         """
-        Analytical O(1)-per-gap off-time calculation replacing the minute-level
-        date_range loop.  Uses the precomputed weekly availability matrix.
+        Empirical waiting time policy stratified by (activity, resource) pair
+        with an activity-only fallback.  Raw inter-event gaps within each case
+        are used directly (no calendar subtraction).
         """
         col_case = self.log_names.case_id
         col_start = self.log_names.start_timestamp
         col_end = self.log_names.end_timestamp
         col_act = self.log_names.activity
+        col_res = self.log_names.resource
 
-        threshold = np.percentile(calendar_policy.raw_matrix.flatten(), 20)
-        availability = calendar_policy.raw_matrix > threshold    # shape (7, 24) bool
-
-        # ── Precompute per-weekday off-hours count ───────────────────
-        # off_hours_per_day[d] = number of OFF hours on weekday d
-        off_hours_per_day = np.array(
-            [(~availability[d]).sum() for d in range(7)], dtype=np.float64
-        )
-        # Total off-seconds in a full week
-        off_seconds_per_week = float(off_hours_per_day.sum() * 3600)
-
-        def _off_seconds_in_gap(prev_end: pd.Timestamp, curr_start: pd.Timestamp) -> float:
-            """
-            Count off-duty seconds between two timestamps using the
-            weekly availability matrix — without iterating minute-by-minute.
-
-            Strategy:
-              1. Count full weeks → multiply by weekly off total.
-              2. Walk the remaining partial hours (at most ~168 h = 1 week).
-            """
-            total_seconds = (curr_start - prev_end).total_seconds()
-            if total_seconds <= 0:
-                return 0.0
-
-            total_hours = total_seconds / 3600.0
-            full_weeks = int(total_hours // 168)  # 168 h / week
-            off = full_weeks * off_seconds_per_week
-
-            # Remaining partial-week portion: iterate by hour (max ~168 iters)
-            remainder_start = prev_end + pd.Timedelta(weeks=full_weeks)
-            t = remainder_start.replace(minute=0, second=0, microsecond=0)
-            if t < remainder_start:
-                t += pd.Timedelta(hours=1)
-
-            # Partial first hour
-            first_partial = (t - remainder_start).total_seconds()
-            if first_partial > 0 and not availability[remainder_start.weekday(), remainder_start.hour]:
-                off += first_partial
-
-            # Full hours in the remainder
-            while t < curr_start:
-                d, h = t.weekday(), t.hour
-                next_t = t + pd.Timedelta(hours=1)
-                if next_t <= curr_start:
-                    if not availability[d, h]:
-                        off += 3600.0
-                else:
-                    # Partial last hour
-                    partial = (curr_start - t).total_seconds()
-                    if not availability[d, h]:
-                        off += partial
-                t = next_t
-
-            return off
-
-        # ── Vectorised gap computation per case ──────────────────────
-        extraneous_by_activity = defaultdict(list)
+        by_pair = defaultdict(list)
+        by_activity = defaultdict(list)
 
         sorted_log = log.sort_values(by=[col_case, col_start])
 
@@ -289,33 +236,28 @@ class DDPSInitializer(Initializer):
             if len(group) < 2:
                 continue
 
-            prev_ends = group[col_end].iloc[:-1].values        # numpy datetime64
+            prev_ends = group[col_end].iloc[:-1].values
             curr_starts = group[col_start].iloc[1:].values
             acts = group[col_act].iloc[1:].values
+            resources = group[col_res].iloc[1:].values
 
-            # Vectorised gap in seconds (numpy timedelta → float)
             gaps_sec = (curr_starts - prev_ends).astype("timedelta64[s]").astype(np.float64)
 
             for idx in range(len(gaps_sec)):
                 gap = gaps_sec[idx]
                 if gap <= 0 or np.isnan(gap):
                     continue
+                delay = self._time_unit_conversion(gap, time_unit)
+                act = acts[idx]
+                res = resources[idx]
+                by_pair[(act, res)].append(delay)
+                by_activity[act].append(delay)
 
-                # Convert numpy datetime64 to Timestamp for the analytical method
-                pe = pd.Timestamp(prev_ends[idx])
-                cs = pd.Timestamp(curr_starts[idx])
+        # p99.5 filter per key
+        def _filter(d):
+            return {k: [v for v in vs if v <= np.percentile(vs, 99.9)] for k, vs in d.items()}
 
-                off = _off_seconds_in_gap(pe, cs)
-                extraneous_sec = max(0.0, gap - off*0.01)
-                extraneous = self._time_unit_conversion(extraneous_sec, time_unit)
-                extraneous_by_activity[acts[idx]].append(extraneous)
-
-        # p99.5 threshold to filter out extreme outliers (could be tuned or removed)
-        for act, delays in extraneous_by_activity.items():
-            threshold = np.percentile(delays, 99.5)
-            extraneous_by_activity[act] = [d for d in delays if d <= threshold]
-
-        return ExtraneousWaitingTimePolicy(extraneous_by_activity)
+        return ExtraneousWaitingTimePolicy(_filter(by_pair), _filter(by_activity))
 
     # ─────────────────────────────────────────────────────────────────
     # CALENDAR — vectorised with .dt accessors

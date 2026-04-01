@@ -41,16 +41,18 @@ def run_basic_simulation():
 
     setup: SimulationSetup = initializer.build(log, log_names, start_timestamp, time_unit)
     simulator = SimulatorEngine(setup)
-    print(setup.routing_policy)
+    # print(setup.routing_policy)
     # print(setup.arrival_policy)
-    # # get cases
-    # ncases = len(log[log_names.case_id].unique())
-    # print(f"Running basic DDPS simulation with {ncases} cases...")
-    # event_log = simulator.simulate(max_cases=ncases, convert_to_absolute_time=True)
-    
-    # path = "data/simulated_logs/AcademicCredentials/AcademicCredentials_DDPS_v2.csv"
-    # export_event_log_to_csv(event_log, path)
-    # print(f"Basic DDPS simulation finished. Simulated event log exported to {path}")
+    # get cases
+    # simulate 10 cases (or all if max_cases=None)
+    ncases = len(log[log_names.case_id].unique())
+    print(f"Running basic DDPS simulation with {ncases} cases...")
+    for i in range(10):
+        print(f"  Simulating case {i+1}/{ncases}...")
+        event_log = simulator.simulate(max_cases=ncases, convert_to_absolute_time=True)
+        path = f"data/simulated_logs/AcademicCredentialsV2/AcademicCredentials_DDPS_{i+1}.csv"
+        export_event_log_to_csv(event_log, path)
+        print(f"Basic DDPS simulation finished. Simulated event log exported to {path}")
 
 if __name__ == "__main__":
     run_basic_simulation()

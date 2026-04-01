@@ -10,6 +10,8 @@ Usage:
 """
 
 import argparse
+import glob
+import os
 
 from metrics.evaluation import PolicyEvaluator
 
@@ -42,25 +44,21 @@ def main():
         sla_percentiles=args.sla_percentiles,
     )
 
-    perf, sim = evaluator.evaluate_single_log(args.simulated)
-
-    evaluator.print_results(
-        evaluator.evaluate_policy(
-            simulated_log_paths=[args.simulated],
-            policy_name=args.policy_name,
-            log_name="evaluation",
-        )
+    paths = (
+        sorted(glob.glob(os.path.join(args.simulated, "*.csv")))
+        if os.path.isdir(args.simulated)
+        else [args.simulated]
     )
 
+    results = evaluator.evaluate_policy(
+        simulated_log_paths=paths,
+        policy_name=args.policy_name,
+        log_name="evaluation",
+    )
+    evaluator.print_results(results)
+
     if args.output_dir:
-        evaluator.save_results(
-            evaluator.evaluate_policy(
-                simulated_log_paths=[args.simulated],
-                policy_name=args.policy_name,
-                log_name="evaluation",
-            ),
-            args.output_dir,
-        )
+        evaluator.save_results(results, args.output_dir)
 
 
 if __name__ == "__main__":
