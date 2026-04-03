@@ -8,6 +8,7 @@ from environment.simulator.implementations.empirical.EmpiricalArrivalPolicy impo
 from environment.simulator.implementations.distributions.WeeklyArrivalPolicy import WeeklyArrivalPolicy
 
 from environment.simulator.implementations.empirical.WeeklyCalendarPolicy import WeeklyCalendarPolicy
+from environment.simulator.implementations.empirical.WeeklyResourceCalendarPolicy import WeeklyResourceCalendarPolicy
 from environment.simulator.policies import ArrivalPolicy, CalendarPolicy, ProcessingTimePolicy, RoutingPolicy
 from environment.simulator.implementations.empirical.ExtraneousWaitingTimePolicy import ExtraneousWaitingTimePolicy
 from environment.simulator.policies.WaitingTImePolicy import WaitingTimePolicy
@@ -255,29 +256,68 @@ class DDPSInitializer(Initializer):
 
         # p99.5 filter per key
         def _filter(d):
-            return {k: [v for v in vs if v <= np.percentile(vs, 99.9)] for k, vs in d.items()}
+            return {k: [v for v in vs if v <= np.percentile(vs, 99.5)] for k, vs in d.items()}
 
         return ExtraneousWaitingTimePolicy(_filter(by_pair), _filter(by_activity))
 
     # ─────────────────────────────────────────────────────────────────
     # CALENDAR — vectorised with .dt accessors
     # ─────────────────────────────────────────────────────────────────
-    def _build_calendar_policy(self, log, start_timestamp: str) -> CalendarPolicy:
-        ts = log[self.log_names.start_timestamp]
-        valid = ts.notna()
+    def _build_calendar_policy(
+        self, log, start_timestamp: str, participation_threshold: float = 0.1
+    ) -> CalendarPolicy:
+        col_act = self.log_names.activity
+        col_res = self.log_names.resource
+        ts_col  = self.log_names.start_timestamp
 
-        weekdays = ts[valid].dt.weekday.values   # 0–6
-        hours = ts[valid].dt.hour.values          # 0–23
+        valid = log[ts_col].notna()
+        sub   = log[valid]
 
-        calendar_counts = np.zeros((7, 24), dtype=np.float64)
-        np.add.at(calendar_counts, (weekdays, hours), 1)
-        
-        non_zero = calendar_counts > 0
-        # Global 20th-percentile threshold on raw counts (no per-row normalisation)
-        threshold = np.percentile(calendar_counts[non_zero].flatten(), 20)
-        availability = calendar_counts > threshold
+        # ── Global matrix (same logic as before) ────────────────────────
+        weekdays_all = sub[ts_col].dt.weekday.values
+        hours_all    = sub[ts_col].dt.hour.values
+        global_counts = np.zeros((7, 24), dtype=np.float64)
+        np.add.at(global_counts, (weekdays_all, hours_all), 1)
+        non_zero = global_counts > 0
+        threshold_global = np.percentile(global_counts[non_zero].flatten(), 20)
+        global_avail = global_counts > threshold_global
 
-        return WeeklyCalendarPolicy(availability, calendar_counts, start_timestamp)
+        # ── RParticipation per resource ──────────────────────────────────
+        # pair_counts: MultiIndex Series (resource, activity) -> count
+        pair_counts = sub.groupby([col_res, col_act]).size()
+        # activity_max[a] = max events by any resource for activity a
+        activity_max = pair_counts.groupby(level=col_act).max()
+
+        resource_avail: dict = {}
+        resources = sub[col_res].dropna().unique()
+
+        for r in resources:
+            if r not in pair_counts:
+                continue
+            r_pairs     = pair_counts[r]                         # Series a->count
+            numerator   = r_pairs.sum()
+            denominator = activity_max.reindex(r_pairs.index).sum()
+            participation = numerator / denominator if denominator > 0 else 0.0
+
+            if participation >= participation_threshold:
+                r_sub      = sub[sub[col_res] == r]
+                r_weekdays = r_sub[ts_col].dt.weekday.values
+                r_hours    = r_sub[ts_col].dt.hour.values
+                r_counts   = np.zeros((7, 24), dtype=np.float64)
+                np.add.at(r_counts, (r_weekdays, r_hours), 1)
+                nz = r_counts > 0
+                if nz.any():
+                    thr = np.percentile(r_counts[nz].flatten(), 5)
+                    avail = r_counts > thr
+                    if avail.any():
+                        resource_avail[r] = avail
+                    # else: all counts equal the threshold (e.g. single unique value)
+                    # — fall back to global to avoid an empty calendar
+
+        print(f"  Per-resource calendars: {len(resource_avail)}/{len(resources)} resources "
+              f"above participation threshold ({participation_threshold}).")
+
+        return WeeklyResourceCalendarPolicy(resource_avail, global_avail, start_timestamp)
 
     # ─────────────────────────────────────────────────────────────────
     # ARRIVALS — minor cleanup (already efficient)

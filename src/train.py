@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument("--update_every", type=int, default=1, help="PPO update every N episodes")
     parser.add_argument("--run_name", type=str, default=None, help="Name for this run")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
-    parser.add_argument("--top_p", type=float, default=0.8, help="Nucleus filtering for activity mask")
+    parser.add_argument("--top_p", type=float, default=0.9, help="Nucleus filtering for activity mask")
     parser.add_argument("--top_k", type=int, default=3, help="Top-k filtering for activity mask")
     parser.add_argument("--p_min_end", type=float, default=0.1, help="Minimum end probability for activity mask")
     return parser.parse_args()
@@ -197,7 +197,7 @@ def main():
     baseline_cr = np.mean(np.array(original_cycle_times) < sla_threshold)
     print(f"SLA Threshold (p{args.percentile}): {sla_threshold:.2f}s")
     print(f"Baseline CR (original log): {baseline_cr:.2%}")
-
+    print(f"Parameters: episodes={args.episodes}, max_cases={args.max_cases}, lr={args.lr}, gamma={args.gamma}, top_p={args.top_p}, top_k={args.top_k}, p_min_end={args.p_min_end}")
     # --- Environment ---
     env = BusinessProcessEnvironment(
         simulator,
@@ -233,6 +233,7 @@ def main():
         "seed": args.seed,
         "top_p": args.top_p,
         "top_k": args.top_k,
+        "p_min_end": args.p_min_end,
     }
     tracker = TrainingMetricsTracker(log_dir=run_dir, hyperparams=hyperparams)
 

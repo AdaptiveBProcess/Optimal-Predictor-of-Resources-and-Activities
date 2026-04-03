@@ -41,8 +41,9 @@ def parse_args():
     parser.add_argument("--policy_name", type=str, default="DRL-AR")
     parser.add_argument("--log_name", type=str, default="LoanApp")
     parser.add_argument("--output_dir", type=str, default="data/evaluation_results")
-    parser.add_argument("--top_p", type=float, default=1)
-    parser.add_argument("--top_k", type=int, default=100)
+    parser.add_argument("--top_p", type=float, default=0.95)
+    parser.add_argument("--top_k", type=int, default=3)
+    parser.add_argument("--p_min_end", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args()
 
@@ -96,7 +97,7 @@ def run_evaluation():
         simulator,
         sla_threshold=sla_threshold,
         max_cases=max_cases,
-        activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p, p_min_end=0.0),
+        activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p, p_min_end=args.p_min_end),
     )
     agent = PPOAgent(
         state_dim=env.observation_space.shape[0],
@@ -125,7 +126,7 @@ def run_evaluation():
             simulator_k,
             sla_threshold=sla_threshold,
             max_cases=max_cases,
-            activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p, p_min_end=0.0),
+            activity_mask_function=NucleusMaskFunction(k=args.top_k, p=args.top_p, p_min_end=args.p_min_end),
         )
 
         t0 = time.time()
@@ -133,7 +134,7 @@ def run_evaluation():
             env=env_k,
             simulator=simulator_k,
             agent=agent,
-            deterministic=False,  # Sthocastic evaluation
+            deterministic=False,  # Stochastic evaluation
         )
         duration = time.time() - t0
 

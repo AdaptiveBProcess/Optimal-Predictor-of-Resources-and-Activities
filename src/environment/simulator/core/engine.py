@@ -122,8 +122,8 @@ class SimulatorEngine:
             if extraneous > 0:
                 yield self.env.timeout(extraneous)
 
-        # 2. Calendar wait — skip to next working slot
-        next_time = self.setup.calendar_policy.next_working_time(self.env.now)
+        # 2. Calendar wait — skip to next working slot (per-resource if available)
+        next_time = self.setup.calendar_policy.next_working_time(self.env.now, resource.id)
         if next_time > self.env.now:
             yield self.env.timeout(next_time - self.env.now)
     

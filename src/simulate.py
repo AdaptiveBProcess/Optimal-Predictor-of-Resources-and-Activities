@@ -50,10 +50,10 @@ def run_basic_simulation():
     for i in range(10):
         print(f"  Simulating case {i+1}/{ncases}...")
         event_log = simulator.simulate(max_cases=ncases, convert_to_absolute_time=True)
-        path = f"data/simulated_logs/AcademicCredentialsV2/AcademicCredentials_DDPS_{i+1}.csv"
+        path = f"data/simulated_logs/AcademicCredentialsV3/AcademicCredentials_DDPS_{i+1}.csv"
         export_event_log_to_csv(event_log, path)
         print(f"Basic DDPS simulation finished. Simulated event log exported to {path}")
-
+    print(simulator.setup.calendar_policy.global_counter, simulator.setup.calendar_policy.resources_counter)
 if __name__ == "__main__":
     run_basic_simulation()
 
