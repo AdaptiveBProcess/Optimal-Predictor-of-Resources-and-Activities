@@ -31,6 +31,9 @@ SEED = 0
 RESTRICTIONS = None
 # RESTRICTIONS = {"Radicar Solicitud Homologacion": ["Cancelar Solicitud"]}
 # RESTRICTIONS = {"*": ["Cancelar Solicitud", "Cancelar curso"]}   # never cancel
+# Fraction of cases the restrictions apply to (1.0 = all).  Assigned once per
+# case: a restricted case obeys every rule, the others obey none.
+RESTRICTION_COVERAGE = 1.0
 
 
 def main():
@@ -46,6 +49,7 @@ def main():
         log_name=LOG_NAME,
         seed=SEED,
         restrictions=RESTRICTIONS,
+        restriction_coverage=RESTRICTION_COVERAGE,
     )
 
 

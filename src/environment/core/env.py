@@ -238,6 +238,7 @@ class BusinessProcessEnvironment(gym.Env):
             probabilities=probs_dict,
             all_activities=self.simulator.all_activities,
             last_activity=case.current_activity if case is not None else None,
+            case_id=case.case_id if case is not None else None,
         )
         return self.activity_mask_function.compute(ctx)
 

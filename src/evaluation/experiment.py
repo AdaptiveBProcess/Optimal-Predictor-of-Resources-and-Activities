@@ -104,6 +104,8 @@ def _make_env(
     max_cases: int,
     masks_cfg: dict,
     restrictions: Optional[dict] = None,
+    restriction_coverage: float = 1.0,
+    restriction_seed: int = 0,
 ):
     simulator = SimulatorEngine(setup)
     mask_fn = NucleusMaskFunction(
@@ -112,7 +114,9 @@ def _make_env(
         p_min_end=masks_cfg["p_min_end"],
     )
     if restrictions:
-        mask_fn = TransitionRestrictionMaskFunction(mask_fn, restrictions)
+        mask_fn = TransitionRestrictionMaskFunction(
+            mask_fn, restrictions, coverage=restriction_coverage, seed=restriction_seed
+        )
         mask_fn.validate(simulator.all_activities)
     env = BusinessProcessEnvironment(
         simulator,
@@ -171,6 +175,7 @@ def evaluate_policy_on_log(
     evaluator: Optional[PolicyEvaluator] = None,
     verbose: bool = True,
     restrictions: Optional[dict] = None,
+    restriction_coverage: float = 1.0,
 ) -> tuple[AggregatedResults, list[dict]]:
     """
     Run K independent simulations for one (log, policy) and return aggregated + per-run metrics.
@@ -196,7 +201,16 @@ def evaluate_policy_on_log(
         applied on top of the activity mask for every policy. ``"*"`` as source
         means any activity; ``"END"`` as target forbids ending the case.
         Saved to ``restrictions.json`` in the policy output folder.
+    restriction_coverage
+        Fraction of cases subject to ``restrictions`` (default 1.0 = all).
+        Assigned once per case: a restricted case obeys every rule at every
+        decision, an unrestricted case obeys none.  In run k the assignment is
+        seeded with ``seed + k``, so the same cases are restricted under every
+        policy for that run.  Restricted case ids are written to
+        ``restricted_cases/run_XX.csv``.
     """
+    if not 0.0 <= restriction_coverage <= 1.0:
+        raise ValueError(f"restriction_coverage must be in [0, 1], got {restriction_coverage}")
     masks_cfg = masks_cfg or dict(DEFAULT_MASKS)
     log_names = _log_column_names()
     log_df = pd.read_csv(log_path)
@@ -243,9 +257,14 @@ def evaluate_policy_on_log(
         # validate early (before any simulation) and record the scenario
         _make_env(setup, sla_threshold, max_cases, masks_cfg, restrictions)
         with open(os.path.join(policy_dir, "restrictions.json"), "w", encoding="utf-8") as f:
-            json.dump(restrictions, f, indent=2, ensure_ascii=False)
+            json.dump(
+                {"rules": restrictions, "coverage": restriction_coverage},
+                f, indent=2, ensure_ascii=False,
+            )
+        restricted_dir = os.path.join(policy_dir, "restricted_cases")
+        os.makedirs(restricted_dir, exist_ok=True)
         if verbose:
-            print(f"Outcome restrictions active: {restrictions}")
+            print(f"Outcome restrictions active (coverage={restriction_coverage:.0%}): {restrictions}")
 
     # ---- K-run loop ----
     rng = np.random.default_rng(seed)
@@ -264,7 +283,10 @@ def evaluate_policy_on_log(
     for k in range(1, K + 1):
         _seed_all(seed + k)
 
-        simulator_k, env_k = _make_env(setup, sla_threshold, max_cases, masks_cfg, restrictions)
+        simulator_k, env_k = _make_env(
+            setup, sla_threshold, max_cases, masks_cfg, restrictions,
+            restriction_coverage=restriction_coverage, restriction_seed=seed + k,
+        )
 
         t0 = time.time()
         result = run_episode(env_k, simulator_k, activity_selector, resource_selector)
@@ -276,8 +298,18 @@ def evaluate_policy_on_log(
         simulated_log_paths.append(sim_path)
         if restrictions:
             mf = env_k.activity_mask_function
-            restriction_counts.append(
-                {"restr_blocked": mf.n_blocked, "restr_fallback": mf.n_fallback, "num_decisions": result.num_steps}
+            restriction_counts.append({
+                "restr_blocked": mf.n_blocked,
+                "restr_fallback": mf.n_fallback,
+                "num_decisions": result.num_steps,
+                "restr_cases_seen": mf.n_cases_seen,
+                "restr_cases_restricted": mf.n_cases_restricted,
+                "restr_coverage_realised": (
+                    mf.n_cases_restricted / mf.n_cases_seen if mf.n_cases_seen else 0.0
+                ),
+            })
+            pd.DataFrame({"case_id": mf.restricted_case_ids}).to_csv(
+                os.path.join(policy_dir, "restricted_cases", f"run_{k:02d}.csv"), index=False
             )
 
         if verbose:
@@ -292,6 +324,8 @@ def evaluate_policy_on_log(
                 + (
                     f", blocked={env_k.activity_mask_function.n_blocked}"
                     f", fallback={env_k.activity_mask_function.n_fallback}"
+                    f", restricted_cases={env_k.activity_mask_function.n_cases_restricted}"
+                    f"/{env_k.activity_mask_function.n_cases_seen}"
                     if restrictions else ""
                 )
             )

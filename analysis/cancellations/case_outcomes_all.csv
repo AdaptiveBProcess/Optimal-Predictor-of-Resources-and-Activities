@@ -1,0 +1,31 @@
+condition,log,policy,events_per_case,single_event_share,canceled_share,focus_end_share,tvd_end
+original,AC_CRE,Original (train),4.89,1.51,54.52,51.51,0.00
+original,AC_CRE,Original (test),4.49,0.75,53.27,48.74,0.20
+flex,AC_CRE,RA-RR,6.96 ± 0.13,0.00,60.58 ± 0.98,60.58 ± 0.98,0.20 ± 0.01
+flex,AC_CRE,DM-RR,5.18 ± 0.06,0.00,50.98 ± 2.28,50.98 ± 2.28,0.14 ± 0.01
+flex,AC_CRE,DM-GR,5.21 ± 0.04,0.00,50.30 ± 1.10,50.30 ± 1.10,0.14 ± 0.01
+flex,AC_CRE,DM-DRL,5.23 ± 0.05,0.00,49.12 ± 1.44,49.12 ± 1.44,0.15 ± 0.01
+flex,AC_CRE,DRL-DRL,4.00,0.00,99.97 ± 0.06,99.97 ± 0.06,0.48 ± 0.00
+flex_kl_reg,AC_CRE,DRL-DRL,4.10 ± 0.02,0.00,77.79 ± 1.17,77.79 ± 1.17,0.27 ± 0.01
+noflex_matrix,AC_CRE,DRL-DRL,1.13 ± 0.02,89.90 ± 1.13,23.37 ± 1.42,13.74 ± 1.50,0.68 ± 0.02
+no_flex_kl_reg,AC_CRE,DRL-DRL,3.34 ± 0.05,9.47 ± 1.00,56.41 ± 0.79,49.95 ± 0.99,0.18 ± 0.01
+original,BPIC12_W,Original (train),5.39,32.94,—,33.27,0.00
+original,BPIC12_W,Original (test),6.24,26.24,—,26.78,0.07
+flex,BPIC12_W,RA-RR,4.98 ± 0.05,25.33 ± 0.66,—,25.33 ± 0.66,0.47 ± 0.01
+flex,BPIC12_W,DM-RR,6.84 ± 0.07,34.07 ± 0.60,—,34.07 ± 0.60,0.39 ± 0.00
+flex,BPIC12_W,DM-GR,6.93 ± 0.07,33.68 ± 0.50,—,33.68 ± 0.50,0.39 ± 0.00
+flex,BPIC12_W,DM-DRL,6.91 ± 0.07,33.80 ± 0.75,—,33.80 ± 0.75,0.39 ± 0.00
+flex,BPIC12_W,DRL-DRL,1.06 ± 0.00,97.90 ± 0.19,—,97.90 ± 0.19,0.65 ± 0.00
+flex_kl_reg,BPIC12_W,DRL-DRL,1.25 ± 0.01,91.24 ± 0.45,—,91.24 ± 0.45,0.58 ± 0.00
+noflex_matrix,BPIC12_W,DRL-DRL,1.17 ± 0.02,86.19 ± 1.01,—,45.49 ± 0.94,0.39 ± 0.00
+no_flex_kl_reg,BPIC12_W,DRL-DRL,1.31 ± 0.02,76.88 ± 1.35,—,43.00 ± 0.78,0.37 ± 0.00
+original,BPIC17_W,Original (train),7.21,0.36,—,47.47,0.00
+original,BPIC17_W,Original (test),7.05,0.66,—,42.11,0.05
+flex,BPIC17_W,RA-RR,6.01 ± 0.02,0.00,—,33.51 ± 0.26,0.16 ± 0.00
+flex,BPIC17_W,DM-RR,7.36 ± 0.04,0.00,—,47.73 ± 0.43,0.01 ± 0.00
+flex,BPIC17_W,DM-GR,7.39 ± 0.05,0.00,—,47.74 ± 0.31,0.01 ± 0.00
+flex,BPIC17_W,DM-DRL,7.38 ± 0.05,0.00,—,47.69 ± 0.39,0.01 ± 0.00
+flex,BPIC17_W,DRL-DRL,2.26 ± 0.00,0.00,—,0.17 ± 0.02,0.66 ± 0.00
+flex_kl_reg,BPIC17_W,DRL-DRL,3.04 ± 0.01,0.00,—,14.26 ± 0.25,0.50 ± 0.00
+noflex_matrix,BPIC17_W,DRL-DRL,1.34 ± 0.02,74.85 ± 1.47,—,2.14 ± 0.18,0.73 ± 0.01
+no_flex_kl_reg,BPIC17_W,DRL-DRL,2.66 ± 0.01,16.23 ± 0.31,—,15.36 ± 0.29,0.49 ± 0.00

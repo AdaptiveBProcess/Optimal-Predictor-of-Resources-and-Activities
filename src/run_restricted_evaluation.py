@@ -1,16 +1,21 @@
 """
-Outcome-restriction scenarios: run a set of policies under hard transition
+Outcome-restriction scenarios: run a set of policies under transition
 restrictions (what-if analysis) and write results per scenario.
 
 Run from the project root:
 
     python src/run_restricted_evaluation.py                       # all scenarios
-    python src/run_restricted_evaluation.py --scenarios AC_R1_no_cancel_after_filing
+    python src/run_restricted_evaluation.py --scenarios AC_R_never_cancel
     python src/run_restricted_evaluation.py --K 2                 # quick smoke test
 
 Output layout:
     data/evaluation_results_restricted/<scenario>/<log>/<policy>/   (simulated logs, results.json, restrictions.json)
     data/evaluation_results_restricted/<scenario>/{runs_long,runs_wide,aggregated}.csv
+
+Each scenario is (log, rules, coverage).  Coverage is the fraction of cases the
+rules apply to, assigned once per case (a restricted case obeys every rule, the
+rest obey none).  It is either a number in [0, 1] or ``log_share``, which uses
+the share of original-log cases that already obey the rules.
 
 All policies in a scenario share the same restriction, and SLA thresholds come
 from the original training log (same PolicyEvaluator as the paper's matrix).
@@ -23,9 +28,18 @@ import argparse
 import sys
 import time
 
+import pandas as pd
+
 from evaluation.csv_export import write_all_csvs
 from evaluation.experiment import evaluate_policy_on_log
+from evaluation.restrictions import log_compliance_share
 from run_matrix_evaluation import _checkpoint_for, _ckpt, _evaluator_for_log
+
+
+def log_share(log_path: str, rules: dict) -> float:
+    """Coverage = share of cases in the original log that already obey every rule."""
+    share, _ = log_compliance_share(pd.read_csv(log_path), rules)
+    return share
 
 
 # Paper "flex" configuration (nucleus mask, kl0 checkpoints)
@@ -50,29 +64,22 @@ LOGS: dict[str, dict] = {
     },
 }
 
-# scenario name -> (log, restrictions).  Listed in priority order.
-SCENARIOS: dict[str, tuple[str, dict]] = {
-    # AC R1 (targeted): no cancellation right after filing; eligibility is checked first.
-    "AC_R1_no_cancel_after_filing": ("AcademicCredentials", {
-        "Radicar Solicitud Homologacion": ["Cancelar Solicitud", "Notificacion estudiante cancelacion soli"],
-    }),
-    # BPIC17 R1: a case cannot close right after an offer call.
-    "BPIC17_R1_no_end_after_call_offers": ("BPIC_2017", {
-        "W_Call after offers": ["END"],
-    }),
-    # BPIC17 R1b: after an offer call the case must move on (no END, no repeated call),
-    # which avoids the Call -> Call loop that R1 alone induces in DRL-DRL.
-    "BPIC17_R1b_validate_after_call_offers": ("BPIC_2017", {
+# scenario name -> (log, rules, coverage).  Listed in priority order.
+SCENARIOS: dict[str, tuple] = {
+    # BPIC17: after an offer call the case must move on (no END, no repeated call).
+    "BPIC17_R_validate_after_call_offers": ("BPIC_2017", {
         "W_Call after offers": ["END", "W_Call after offers"],
-    }),
-    # BPIC12 R1: a lead must be followed up.
+    }, log_share),
+    # BPIC12: a lead must be followed up.
     "BPIC12_R1_no_end_after_leads": ("BPIC_2012", {
         "W_Afhandelen leads": ["END"],
-    }),
-    # AC R2 (strict upper bound): never cancel.
-    "AC_R2_never_cancel": ("AcademicCredentials", {
+    }, log_share),
+    # AC: never cancel, and a case cannot end right after course homologation.
+    # Applied to as many cases as obey these rules in the original log (28.6%).
+    "AC_R_never_cancel": ("AcademicCredentials", {
         "*": ["Cancelar Solicitud", "Cancelar curso", "Notificacion estudiante cancelacion soli"],
-    }),
+        "Homologacion por grupo de cursos": ["END"],
+    }, log_share),
 }
 
 POLICIES = ["DM-RR", "DM-DRL", "DRL-DRL"]
@@ -98,10 +105,15 @@ def main() -> int:
         return 1
 
     for i, name in enumerate(args.scenarios, 1):
-        log_name, restrictions = SCENARIOS[name]
+        log_name, restrictions, coverage = SCENARIOS[name]
         cfg = LOGS[log_name]
+        if callable(coverage):
+            coverage = coverage(cfg["path"], restrictions)
         out_dir = f"{args.output_dir}/{name}"
-        print(f"\n{'=' * 70}\n[{i}/{len(args.scenarios)}] {name}  ({log_name})  {restrictions}\n{'=' * 70}")
+        print(
+            f"\n{'=' * 70}\n[{i}/{len(args.scenarios)}] {name}  ({log_name})  "
+            f"coverage={coverage:.1%}  {restrictions}\n{'=' * 70}"
+        )
         evaluator = _evaluator_for_log(cfg, args.sla_percentiles)
         records: list[dict] = []
         t0 = time.time()
@@ -119,6 +131,7 @@ def main() -> int:
                 seed=args.seed,
                 evaluator=evaluator,
                 restrictions=restrictions,
+                restriction_coverage=coverage,
             )
             records.extend(recs)
         paths = write_all_csvs(records, out_dir)

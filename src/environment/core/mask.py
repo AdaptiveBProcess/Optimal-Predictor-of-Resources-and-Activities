@@ -1,3 +1,4 @@
+import zlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
@@ -21,6 +22,7 @@ class ActivityMaskContext:
     probabilities: dict[str, float]   # {activity_name: branching_probability}
     all_activities: list[str]         # ordered activity list (index ↔ position)
     last_activity: Optional[str] = None  # case's last executed activity (None = case start)
+    case_id: Optional[str] = None        # identity of the deciding case (None = unknown)
 
 
 @dataclass
@@ -193,26 +195,78 @@ class TransitionRestrictionMaskFunction(ActivityMaskFunction):
     -------
     >>> TransitionRestrictionMaskFunction(NucleusMaskFunction(k=3), {"Radicar": ["Cancelar"]})
 
+    coverage : float in [0, 1]
+        Fraction of cases subject to the restrictions (default 1.0 = all).
+        Each case is assigned ONCE, on its first decision: with probability
+        ``coverage`` it is "restricted" and every rule applies to it at every
+        decision; otherwise no rule ever applies to it.  The draw is a
+        deterministic function of ``(seed, case_id)`` and does not touch the
+        global RNG, so the same cases are restricted under every policy for a
+        given seed (common random numbers) and the other random streams are
+        unaffected.
+    seed : int
+        Seed for the per-case assignment (vary it across runs).
+
     Counters ``n_blocked`` (decisions where a forbidden option was actually
     removed from the mask) and ``n_fallback`` (decisions where the mask became
     empty and an alternative was re-enabled) let the analyst confirm the
-    restriction fired.
+    restriction fired.  ``n_cases_seen`` / ``n_cases_restricted`` report the
+    realised coverage; ``restricted_case_ids`` lists the restricted cases.
     """
 
     ANY = "*"
     END_ALIAS = "END"
 
-    def __init__(self, base: ActivityMaskFunction, forbidden: dict):
+    def __init__(
+        self,
+        base: ActivityMaskFunction,
+        forbidden: dict,
+        coverage: float = 1.0,
+        seed: int = 0,
+    ):
+        if not 0.0 <= coverage <= 1.0:
+            raise ValueError(f"coverage must be in [0, 1], got {coverage}")
         self.base = base
         self.forbidden = {
             src: {None if t == self.END_ALIAS else t for t in targets}
             for src, targets in forbidden.items()
         }
+        self.coverage = float(coverage)
+        self.seed = int(seed)
         self.reset_counters()
 
     def reset_counters(self) -> None:
         self.n_blocked = 0
         self.n_fallback = 0
+        self._case_flags: dict = {}
+
+    @property
+    def n_cases_seen(self) -> int:
+        return len(self._case_flags)
+
+    @property
+    def n_cases_restricted(self) -> int:
+        return sum(self._case_flags.values())
+
+    @property
+    def restricted_case_ids(self) -> list:
+        return [cid for cid, flag in self._case_flags.items() if flag]
+
+    def _case_is_restricted(self, case_id) -> bool:
+        if case_id is None:
+            # No identity available: fall back to restricting (old behaviour).
+            return True
+        flag = self._case_flags.get(case_id)
+        if flag is None:
+            if self.coverage >= 1.0:
+                flag = True
+            elif self.coverage <= 0.0:
+                flag = False
+            else:
+                h = zlib.crc32(str(case_id).encode("utf-8"))
+                flag = bool(np.random.default_rng([self.seed, h]).random() < self.coverage)
+            self._case_flags[case_id] = flag
+        return flag
 
     def validate(self, all_activities: list) -> None:
         """
@@ -257,6 +311,8 @@ class TransitionRestrictionMaskFunction(ActivityMaskFunction):
 
     def compute(self, ctx: ActivityMaskContext) -> np.ndarray:
         mask = np.asarray(self.base.compute(ctx), dtype=np.float32).copy()
+        if not self._case_is_restricted(ctx.case_id):
+            return mask
         targets = self._targets_for(ctx.last_activity)
         if not targets:
             return mask
