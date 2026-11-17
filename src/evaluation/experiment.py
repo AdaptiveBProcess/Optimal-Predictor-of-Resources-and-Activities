@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import random
 import time
@@ -13,7 +14,7 @@ import pandas as pd
 import torch
 
 from environment.core.env import BusinessProcessEnvironment
-from environment.core.mask import NucleusMaskFunction
+from environment.core.mask import NucleusMaskFunction, TransitionRestrictionMaskFunction
 from environment.simulator.adapters.event_log_to_csv import export_event_log_to_csv
 from environment.simulator.core.engine import SimulatorEngine
 from environment.simulator.core.log_names import LogColumnNames
@@ -97,17 +98,27 @@ def _load_agent_for_policy(policy_name: str, checkpoint_path: str, env: Business
     raise ValueError(f"Policy '{policy_name}' does not require an agent checkpoint")
 
 
-def _make_env(setup: SimulationSetup, sla_threshold: float, max_cases: int, masks_cfg: dict):
+def _make_env(
+    setup: SimulationSetup,
+    sla_threshold: float,
+    max_cases: int,
+    masks_cfg: dict,
+    restrictions: Optional[dict] = None,
+):
     simulator = SimulatorEngine(setup)
+    mask_fn = NucleusMaskFunction(
+        k=masks_cfg["top_k"],
+        p=masks_cfg["top_p"],
+        p_min_end=masks_cfg["p_min_end"],
+    )
+    if restrictions:
+        mask_fn = TransitionRestrictionMaskFunction(mask_fn, restrictions)
+        mask_fn.validate(simulator.all_activities)
     env = BusinessProcessEnvironment(
         simulator,
         sla_threshold=sla_threshold,
         max_cases=max_cases,
-        activity_mask_function=NucleusMaskFunction(
-            k=masks_cfg["top_k"],
-            p=masks_cfg["top_p"],
-            p_min_end=masks_cfg["p_min_end"],
-        ),
+        activity_mask_function=mask_fn,
     )
     return simulator, env
 
@@ -159,6 +170,7 @@ def evaluate_policy_on_log(
     seed: int = 0,
     evaluator: Optional[PolicyEvaluator] = None,
     verbose: bool = True,
+    restrictions: Optional[dict] = None,
 ) -> tuple[AggregatedResults, list[dict]]:
     """
     Run K independent simulations for one (log, policy) and return aggregated + per-run metrics.
@@ -179,6 +191,11 @@ def evaluate_policy_on_log(
         If provided, reuse it (so reference compliance data is shared across
         policies on the same log). If None, a fresh PolicyEvaluator is built
         from `log_path` and `sla_percentiles`.
+    restrictions
+        Optional outcome restrictions ``{source_activity: [forbidden_next]}``
+        applied on top of the activity mask for every policy. ``"*"`` as source
+        means any activity; ``"END"`` as target forbids ending the case.
+        Saved to ``restrictions.json`` in the policy output folder.
     """
     masks_cfg = masks_cfg or dict(DEFAULT_MASKS)
     log_names = _log_column_names()
@@ -213,7 +230,7 @@ def evaluate_policy_on_log(
         if checkpoint is None:
             raise ValueError(f"Policy '{policy_name}' requires a checkpoint")
         # build a temporary env to discover state_dim / num_activities / num_resources
-        sim_tmp, env_tmp = _make_env(setup, sla_threshold, max_cases, masks_cfg)
+        sim_tmp, env_tmp = _make_env(setup, sla_threshold, max_cases, masks_cfg, restrictions)
         agent = _load_agent_for_policy(policy_name, checkpoint, env_tmp, sim_tmp)
         del sim_tmp, env_tmp
 
@@ -221,6 +238,14 @@ def evaluate_policy_on_log(
     policy_dir = os.path.join(output_dir, log_name, policy_name)
     sim_log_dir = os.path.join(policy_dir, "simulated_logs")
     os.makedirs(sim_log_dir, exist_ok=True)
+
+    if restrictions:
+        # validate early (before any simulation) and record the scenario
+        _make_env(setup, sla_threshold, max_cases, masks_cfg, restrictions)
+        with open(os.path.join(policy_dir, "restrictions.json"), "w", encoding="utf-8") as f:
+            json.dump(restrictions, f, indent=2, ensure_ascii=False)
+        if verbose:
+            print(f"Outcome restrictions active: {restrictions}")
 
     # ---- K-run loop ----
     rng = np.random.default_rng(seed)
@@ -232,13 +257,14 @@ def evaluate_policy_on_log(
     )
 
     simulated_log_paths = []
+    restriction_counts: list[dict] = []
     if verbose:
         print(f"\nRunning {K} simulations: log='{log_name}' policy='{policy_name}'")
 
     for k in range(1, K + 1):
         _seed_all(seed + k)
 
-        simulator_k, env_k = _make_env(setup, sla_threshold, max_cases, masks_cfg)
+        simulator_k, env_k = _make_env(setup, sla_threshold, max_cases, masks_cfg, restrictions)
 
         t0 = time.time()
         result = run_episode(env_k, simulator_k, activity_selector, resource_selector)
@@ -248,6 +274,11 @@ def evaluate_policy_on_log(
         sim_path = os.path.join(sim_log_dir, f"sim_run_{k:02d}.csv")
         export_event_log_to_csv(simulator_k.event_log, sim_path)
         simulated_log_paths.append(sim_path)
+        if restrictions:
+            mf = env_k.activity_mask_function
+            restriction_counts.append(
+                {"restr_blocked": mf.n_blocked, "restr_fallback": mf.n_fallback, "num_decisions": result.num_steps}
+            )
 
         if verbose:
             ct = np.array(result.cycle_times)
@@ -258,6 +289,11 @@ def evaluate_policy_on_log(
                 f"reward={result.total_reward:.2f}, "
                 f"CR(p{train_percentile})={cr:.2%}, avg_ct={avg_ct:.1f}, "
                 f"time={duration:.1f}s"
+                + (
+                    f", blocked={env_k.activity_mask_function.n_blocked}"
+                    f", fallback={env_k.activity_mask_function.n_fallback}"
+                    if restrictions else ""
+                )
             )
 
     # ---- aggregate metrics + collect per-run records ----
@@ -271,11 +307,18 @@ def evaluate_policy_on_log(
         perf, sim = evaluator.evaluate_single_log(path)
         perf_results.append(perf)
         sim_results.append(sim)
-        per_run_records.append(_flatten_run_record(log_name, policy_name, run_id, perf, sim))
+        rec = _flatten_run_record(log_name, policy_name, run_id, perf, sim)
+        if restriction_counts:
+            rec.update(restriction_counts[run_id - 1])
+        per_run_records.append(rec)
 
     aggregated = aggregate_results(perf_results, sim_results, policy_name, log_name)
 
     # ---- persist ----
+    if restriction_counts:
+        pd.DataFrame(
+            [{"run_id": i, **c} for i, c in enumerate(restriction_counts, start=1)]
+        ).to_csv(os.path.join(policy_dir, "restriction_counts.csv"), index=False)
     evaluator.save_results(aggregated, policy_dir)
     if verbose:
         evaluator.print_results(aggregated)

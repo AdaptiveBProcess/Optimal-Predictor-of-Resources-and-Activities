@@ -236,6 +236,8 @@ Checkpoint names in `LOG_REGISTRY` must match the run name format produced by `t
 - **Resource**: Circadian Workforce Distribution (CWD)
 - **Congestion**: Case Arrival Rate (CAR) and Cycle Time Distribution (CTD)
 
+**Outcome restrictions (what-if analysis).** `evaluate_policy_on_log(..., restrictions={src: [forbidden_next, ...]})` (and `RESTRICTIONS` in `run_single_evaluation.py`) forbids specific `last_activity -> next_activity` transitions for *any* policy. It is implemented as `TransitionRestrictionMaskFunction` in `src/environment/core/mask.py`, a decorator over the nucleus mask, so selectors, agents and simulator policies are untouched. `"*"` as source = any activity, `"END"` as target = forbid ending the case. Unknown names raise `ValueError` listing valid activities. If the mask becomes empty, the most probable allowed transition is re-enabled (`n_fallback`). Per-run prints show `blocked`/`fallback` counts and `restrictions.json` is written to the policy output folder. The state vector (Block B) still reports the original branching probabilities — the restriction acts at decision time only.
+
 ### Baselines
 
 The five evaluation policies (`src/evaluation/selectors/factory.py::build_policy`):

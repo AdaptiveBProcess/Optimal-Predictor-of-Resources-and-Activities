@@ -20,6 +20,7 @@ class ActivityMaskContext:
     """
     probabilities: dict[str, float]   # {activity_name: branching_probability}
     all_activities: list[str]         # ordered activity list (index ↔ position)
+    last_activity: Optional[str] = None  # case's last executed activity (None = case start)
 
 
 @dataclass
@@ -167,6 +168,122 @@ class NucleusMaskFunction(ActivityMaskFunction):
                 binary_mask[-1] = 1.0
 
         return binary_mask
+
+
+_UNKNOWN = object()
+
+
+class TransitionRestrictionMaskFunction(ActivityMaskFunction):
+    """
+    Decorator over any ActivityMaskFunction that forbids specific
+    ``last_activity -> next_activity`` transitions (outcome restriction /
+    what-if analysis).  Works for every selector because all of them consume
+    the env's activity mask.
+
+    Parameters
+    ----------
+    base : ActivityMaskFunction
+        Mask applied first (e.g. NucleusMaskFunction).
+    forbidden : dict
+        ``{source_activity: [forbidden_targets]}``.
+        Source ``"*"`` = from any activity; source ``None`` = case start.
+        Target ``"END"`` (or ``None``) = forbid ending the case.
+
+    Example
+    -------
+    >>> TransitionRestrictionMaskFunction(NucleusMaskFunction(k=3), {"Radicar": ["Cancelar"]})
+
+    Counters ``n_blocked`` (decisions where a forbidden option was actually
+    removed from the mask) and ``n_fallback`` (decisions where the mask became
+    empty and an alternative was re-enabled) let the analyst confirm the
+    restriction fired.
+    """
+
+    ANY = "*"
+    END_ALIAS = "END"
+
+    def __init__(self, base: ActivityMaskFunction, forbidden: dict):
+        self.base = base
+        self.forbidden = {
+            src: {None if t == self.END_ALIAS else t for t in targets}
+            for src, targets in forbidden.items()
+        }
+        self.reset_counters()
+
+    def reset_counters(self) -> None:
+        self.n_blocked = 0
+        self.n_fallback = 0
+
+    def validate(self, all_activities: list) -> None:
+        """
+        Resolve names against the simulator's activities and raise ValueError
+        if any is unknown (catches typos).  Matching ignores surrounding
+        whitespace (some logs store e.g. ' W_Handle leads').
+        """
+        by_stripped = {a.strip(): a for a in all_activities if a is not None}
+
+        def resolve(name):
+            if name in (self.ANY, None):
+                return name
+            if name in by_stripped.values():
+                return name
+            return by_stripped.get(str(name).strip(), _UNKNOWN)
+
+        unknown = []
+        resolved = {}
+        for src, targets in self.forbidden.items():
+            r_src = resolve(src)
+            if r_src is _UNKNOWN:
+                unknown.append(src)
+            r_targets = set()
+            for t in targets:
+                r_t = resolve(t)
+                if r_t is _UNKNOWN:
+                    unknown.append(t)
+                else:
+                    r_targets.add(r_t)
+            resolved.setdefault(r_src, set()).update(r_targets)
+        if unknown:
+            valid = sorted(str(a).strip() for a in all_activities if a is not None)
+            raise ValueError(
+                f"Unknown activity name(s) in restrictions: {unknown}. "
+                f"Valid activities: {valid} (use '{self.END_ALIAS}' for case end, "
+                f"'{self.ANY}' as source for any activity)."
+            )
+        self.forbidden = resolved
+
+    def _targets_for(self, last_activity) -> set:
+        return self.forbidden.get(self.ANY, set()) | self.forbidden.get(last_activity, set())
+
+    def compute(self, ctx: ActivityMaskContext) -> np.ndarray:
+        mask = np.asarray(self.base.compute(ctx), dtype=np.float32).copy()
+        targets = self._targets_for(ctx.last_activity)
+        if not targets:
+            return mask
+
+        forbidden_idx = [i for i, a in enumerate(ctx.all_activities) if a in targets]
+        if forbidden_idx and mask[forbidden_idx].sum() > 0:
+            self.n_blocked += 1
+        mask[forbidden_idx] = 0.0
+
+        if mask.sum() == 0:
+            # Re-enable ONE allowed observed transition (even if the base mask had
+            # filtered it out) so the simulation never deadlocks.  It is sampled
+            # proportionally to the routing probabilities: usually the most
+            # probable one, but not always (avoids a greedy, deterministic choice).
+            self.n_fallback += 1
+            candidates = [
+                (act, p) for act, p in ctx.probabilities.items()
+                if act not in targets and act in ctx.all_activities and p > 0
+            ]
+            if candidates:
+                probs = np.array([p for _, p in candidates], dtype=float)
+                pick = candidates[np.random.choice(len(candidates), p=probs / probs.sum())][0]
+                mask[ctx.all_activities.index(pick)] = 1.0
+            else:
+                mask[-1] = 1.0  # END as last resort
+        return mask
+
 
 class SkillBasedMaskFunction(ResourceMaskFunction):
     """

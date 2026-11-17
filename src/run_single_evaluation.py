@@ -23,6 +23,15 @@ MASKS = dict(top_k=3, top_p=0.9, p_min_end=0.1)
 #MASKS = dict(top_k=100, top_p=1, p_min_end=0)
 SEED = 0
 
+# --- outcome restrictions (None = unrestricted) ---
+# {source_activity: [forbidden_next_activities]}
+#   "*" as source  -> forbid the target after ANY activity
+#   "END" as target -> forbid ending the case at that point
+# Tip: point OUTPUT_DIR to a separate folder per scenario so baselines aren't overwritten.
+RESTRICTIONS = None
+# RESTRICTIONS = {"Radicar Solicitud Homologacion": ["Cancelar Solicitud"]}
+# RESTRICTIONS = {"*": ["Cancelar Solicitud", "Cancelar curso"]}   # never cancel
+
 
 def main():
     evaluate_policy_on_log(
@@ -36,6 +45,7 @@ def main():
         output_dir=OUTPUT_DIR,
         log_name=LOG_NAME,
         seed=SEED,
+        restrictions=RESTRICTIONS,
     )
 
 
