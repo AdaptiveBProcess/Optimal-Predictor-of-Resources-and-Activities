@@ -5,7 +5,7 @@ restrictions (what-if analysis) and write results per scenario.
 Run from the project root:
 
     python src/run_restricted_evaluation.py                       # all scenarios
-    python src/run_restricted_evaluation.py --scenarios AC_R_never_cancel
+    python src/run_restricted_evaluation.py --scenarios AC_R_limit_cancel
     python src/run_restricted_evaluation.py --K 2                 # quick smoke test
 
 Output layout:
@@ -76,10 +76,15 @@ SCENARIOS: dict[str, tuple] = {
     }, log_share),
     # AC: never cancel, and a case cannot end right after course homologation.
     # Applied to as many cases as obey these rules in the original log (28.6%).
-    "AC_R_never_cancel": ("AcademicCredentials", {
+    "AC_R_limit_cancel": ("AcademicCredentials", {
         "*": ["Cancelar Solicitud", "Cancelar curso", "Notificacion estudiante cancelacion soli"],
         "Homologacion por grupo de cursos": ["END"],
     }, log_share),
+    # AC: same rules applied to every case (coverage 100%) -> no case is ever cancelled.
+    "AC_R_never_cancel": ("AcademicCredentials", {
+        "*": ["Cancelar Solicitud", "Cancelar curso", "Notificacion estudiante cancelacion soli"],
+        "Homologacion por grupo de cursos": ["END"],
+    }, 1.0),
 }
 
 POLICIES = ["DM-RR", "DM-DRL", "DRL-DRL"]
